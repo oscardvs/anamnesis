@@ -1,6 +1,12 @@
 import subprocess
 
-from anamnesis.inject import _normalize_remote, resolve_project_key
+from anamnesis.inject import (
+    _normalize_remote,
+    render_inject,
+    resolve_project_key,
+    select_inject,
+)
+from anamnesis.store import MemoryStore
 
 
 def _git(cwd, *args):
@@ -36,3 +42,47 @@ def test_resolve_project_key_non_git_uses_cwd_basename(tmp_path):
     d = tmp_path / "PlainDir"
     d.mkdir()
     assert resolve_project_key(d) == "plaindir"
+
+
+def _write(store, **kw):
+    kw.setdefault("machine_id", "m")
+    return store.write(**kw)
+
+
+def test_select_inject_always_includes_global(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    _write(store, type="semantic", title="pref", body="no em dashes", project="global")
+    _write(store, type="semantic", title="other", body="x", project="someproj")
+    titles = {m.title for m in select_inject(store, project="unrelated", k=8)}
+    assert "pref" in titles  # global always present
+    assert "other" not in titles  # other project excluded
+
+
+def test_select_inject_scopes_durable_and_reserves_recent_episodic(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    for i in range(10):
+        _write(store, type="procedural", title=f"proc{i}", body="b", project="p")
+    e1 = _write(store, type="episodic", title="old-session", body="b", project="p")
+    e2 = _write(store, type="episodic", title="new-session", body="b", project="p")
+    sel = select_inject(store, project="p", k=8)
+    titles = [m.title for m in sel]
+    assert len(sel) == 8  # capped at k (no global notes here)
+    # up to two most-recent episodic reserved for continuity
+    assert "new-session" in titles
+    assert e2.id in {m.id for m in sel} and e1.id in {m.id for m in sel}
+    # the rest are durable procedural notes
+    assert sum(1 for m in sel if m.type == "procedural") == 6
+
+
+def test_render_inject_includes_title_body_and_provenance(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    _write(store, type="procedural", title="WAL mode", body="set busy_timeout", project="p")
+    text = render_inject(select_inject(store, project="p", k=8))
+    assert "WAL mode" in text
+    assert "set busy_timeout" in text
+    assert "project: p" in text  # provenance line
+
+
+def test_render_inject_empty_is_blank(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    assert render_inject(select_inject(store, project="p", k=8)) == ""
