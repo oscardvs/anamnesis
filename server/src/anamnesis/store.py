@@ -14,6 +14,7 @@ Layout under ``root`` (default ``~/.anamnesis``)::
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -30,6 +31,17 @@ _FM_DELIM = "---\n"
 
 def _utcnow() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def _fts_query(query: str) -> str:
+    """Turn free text into a safe FTS5 MATCH expression.
+
+    Each word becomes a quoted phrase (terms ANDed). FTS5-special characters
+    (``-``, ``:``, ``*``, ``"`` ...) are neutralized so arbitrary user or imported
+    text cannot break the query parser. Returns "" if there are no word tokens.
+    """
+    tokens = re.findall(r"\w+", query, flags=re.UNICODE)
+    return " ".join(f'"{t}"' for t in tokens)
 
 
 @dataclass
@@ -171,12 +183,15 @@ class MemoryStore:
         k: int = 8,
     ) -> list[Memory]:
         """Keyword (FTS5 BM25) search, optionally scoped by project/type."""
+        match = _fts_query(query)
+        if not match:
+            return []
         sql = [
             "SELECT m.id FROM memories_fts f",
             "JOIN memories m ON m.id = f.id",
             "WHERE memories_fts MATCH ?",
         ]
-        params: list[object] = [query]
+        params: list[object] = [match]
         if project is not None:
             sql.append("AND m.project = ?")
             params.append(project)

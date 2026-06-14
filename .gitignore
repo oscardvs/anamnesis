@@ -8,6 +8,10 @@
 *.private.md
 NOTES.local.md
 
+# Personal-memory-handling code (the bridge to your real ~/.claude notes) stays
+# local-only, never on GitHub. Any code under a private/ dir is git-ignored.
+**/private/
+
 # ---------------------------------------------------------------------------
 # Secrets & environment
 # ---------------------------------------------------------------------------

@@ -69,6 +69,23 @@ def test_search_is_scoped_by_project(tmp_path):
     assert beta.id not in ids
 
 
+def test_search_tolerates_fts_special_characters(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    mem = store.write(
+        type="semantic",
+        title="Aspect ratios",
+        body="A 16:9 state-of-the-art display.",
+        project="p",
+        machine_id="d",
+    )
+
+    # Queries containing FTS5-special characters (-, :) must not raise.
+    assert mem.id in [m.id for m in store.search("state-of-the-art")]
+    assert mem.id in [m.id for m in store.search("16:9")]
+    # A query with no word characters yields no results rather than erroring.
+    assert store.search("-") == []
+
+
 def test_reindex_rebuilds_index_from_markdown_only(tmp_path):
     # The index is derived: a machine that git-synced only the markdown (no
     # index.db) must be able to rebuild a working index from the files alone.
