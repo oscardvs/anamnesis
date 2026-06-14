@@ -1,6 +1,11 @@
 import json
 
-from anamnesis.capture import ParsedSession, parse_transcript
+from anamnesis.capture import (
+    HeuristicSummarizer,
+    ParsedSession,
+    parse_transcript,
+    resolve_summarizer,
+)
 
 
 def _line(obj):
@@ -90,3 +95,32 @@ def test_parse_skips_meta_user_events(tmp_path):
 def test_parse_missing_file_returns_empty_session(tmp_path):
     s = parse_transcript(tmp_path / "nope.jsonl")
     assert s == ParsedSession()
+
+
+def test_heuristic_summarizer_builds_title_and_body():
+    s = ParsedSession(
+        first_prompt="Add a CLI\nwith subcommands",
+        last_outcome="Done, shipped",
+        files_touched=["cli.py", "inject.py"],
+        git_branch="main",
+    )
+    title, body = HeuristicSummarizer().summarize(s)
+    assert title == "Add a CLI"  # first line of the ask, trimmed
+    assert "**Ask:** Add a CLI" in body
+    assert "**Branch:** main" in body
+    assert "**Files touched (2):**" in body
+    assert "- cli.py" in body
+    assert "**Outcome:** Done, shipped" in body
+
+
+def test_heuristic_summarizer_handles_empty_session():
+    title, body = HeuristicSummarizer().summarize(ParsedSession())
+    assert title == "Session summary"
+    assert "(no user prompt captured)" in body
+
+
+def test_resolve_summarizer_defaults_to_heuristic(monkeypatch):
+    monkeypatch.delenv("ANAMNESIS_REFLECTION_PROVIDER", raising=False)
+    assert isinstance(resolve_summarizer(), HeuristicSummarizer)
+    monkeypatch.setenv("ANAMNESIS_REFLECTION_PROVIDER", "some-future-model")
+    assert isinstance(resolve_summarizer(), HeuristicSummarizer)

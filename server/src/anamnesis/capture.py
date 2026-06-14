@@ -10,8 +10,11 @@ real transcript path at runtime.
 from __future__ import annotations
 
 import json
+import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Protocol
 
 _EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 
@@ -100,3 +103,52 @@ def parse_transcript(path: str | Path) -> ParsedSession:
 
     session.last_outcome = last_text
     return session
+
+
+_MAX_LEN = 600
+
+
+def _clip(text: str, limit: int = _MAX_LEN) -> str:
+    text = text.strip()
+    return text if len(text) <= limit else text[:limit].rstrip() + " ..."
+
+
+class Summarizer(Protocol):
+    """Turns a parsed session into an episodic note (title, body)."""
+
+    def summarize(self, session: ParsedSession) -> tuple[str, str]: ...
+
+
+class HeuristicSummarizer:
+    """Deterministic v0 summary: the ask, the branch, files touched, the outcome."""
+
+    def summarize(self, session: ParsedSession) -> tuple[str, str]:
+        first = session.first_prompt
+        title = first.splitlines()[0][:80] if first else "Session summary"
+        parts = [f"**Ask:** {_clip(first) or '(no user prompt captured)'}", ""]
+        if session.git_branch:
+            parts.append(f"**Branch:** {session.git_branch}")
+        if session.files_touched:
+            parts.append(f"**Files touched ({len(session.files_touched)}):**")
+            parts.extend(f"- {p}" for p in session.files_touched)
+        parts.append("")
+        outcome = _clip(session.last_outcome) or "(no assistant output captured)"
+        parts.append(f"**Outcome:** {outcome}")
+        return title, "\n".join(parts)
+
+
+def _make_heuristic() -> Summarizer:
+    return HeuristicSummarizer()
+
+
+_SUMMARIZERS: dict[str, Callable[[], Summarizer]] = {"heuristic": _make_heuristic}
+
+
+def resolve_summarizer() -> Summarizer:
+    """Pick the summarizer from ``ANAMNESIS_REFLECTION_PROVIDER`` (default heuristic).
+
+    v0 only ships the deterministic summarizer; an LLM-backed reflection model
+    (architecture section 6) registers here later with no call-site changes.
+    """
+    provider = os.environ.get("ANAMNESIS_REFLECTION_PROVIDER", "heuristic").lower()
+    return _SUMMARIZERS.get(provider, _make_heuristic)()
