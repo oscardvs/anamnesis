@@ -1,0 +1,77 @@
+# ============================================================================
+# PRIVATE - never publish. The repo is public; our strategy is not.
+# Roadmap, research, business case, and market analysis stay local-only.
+# If you add a new strategy/research doc, put it under docs/ so it's covered.
+# ============================================================================
+/docs/
+/private/
+*.private.md
+NOTES.local.md
+
+# ---------------------------------------------------------------------------
+# Secrets & environment
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.*
+
+# ---------------------------------------------------------------------------
+# Anamnesis runtime data (the local memory store + index live in the user's
+# home dir at runtime, never in the repo; ignore any stray local copies)
+# ---------------------------------------------------------------------------
+.anamnesis/
+*.db
+*.sqlite
+*.sqlite3
+*-wal
+*-shm
+
+# ---------------------------------------------------------------------------
+# Python (server/)
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.env-*/
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ---------------------------------------------------------------------------
+# Node / Next.js (dashboard/)
+# ---------------------------------------------------------------------------
+node_modules/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+.vercel/
+coverage/
+
+# ---------------------------------------------------------------------------
+# Editors / OS
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+*.log
+
+# ---------------------------------------------------------------------------
+# Local Claude Code session artifacts (keep shared config, ignore local)
+# ---------------------------------------------------------------------------
+.claude/settings.local.json
