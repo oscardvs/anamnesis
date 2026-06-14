@@ -61,3 +61,66 @@ def build_env(*, machine_id: str, remote: str | None, home: Path | None) -> dict
     if home is not None:
         env["ANAMNESIS_HOME"] = str(home)
     return env
+
+
+HookEntry = dict[str, object]
+HooksMap = dict[str, list[HookEntry]]
+
+
+def _command_string(env: dict[str, str], base: list[str], *args: str) -> str:
+    """A shell-form hook command: ``KEY=val ... <base> <args>`` with values quoted."""
+    prefix = " ".join(f"{k}={shlex.quote(v)}" for k, v in env.items())
+    cmd = " ".join(shlex.quote(p) for p in [*base, *args])
+    return f"{prefix} {cmd}" if prefix else cmd
+
+
+def build_hooks(base: list[str], env: dict[str, str]) -> HooksMap:
+    """The four lifecycle hooks (matching examples/hooks.settings.json) with inline env."""
+    return {
+        "SessionStart": [
+            {
+                "matcher": "startup|resume|clear",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": _command_string(env, base, "inject"),
+                        "timeout": 15,
+                    }
+                ],
+            },
+            {
+                "matcher": "startup|resume",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": _command_string(env, base, "sync"),
+                        "async": True,
+                    }
+                ],
+            },
+        ],
+        "SessionEnd": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": _command_string(env, base, "capture"),
+                        "timeout": 120,
+                    }
+                ]
+            }
+        ],
+        "PreCompact": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": _command_string(
+                            env, base, "capture", "--source", "precompact", "--no-sync"
+                        ),
+                        "timeout": 60,
+                    }
+                ]
+            }
+        ],
+    }
