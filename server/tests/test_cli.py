@@ -1,6 +1,8 @@
 import io
 import json
 
+import pytest
+
 from anamnesis.cli import (
     build_parser,
     cmd_capture,
@@ -204,3 +206,32 @@ def test_main_dispatches_init_print_writes_nothing(tmp_path, monkeypatch, capsys
     assert rc == 0
     assert "plan" in capsys.readouterr().out.lower()
     assert not (tmp_path / "dotclaude" / "settings.json").exists()
+
+
+def test_main_dispatches_init_installs_hooks_and_syncs(tmp_path, monkeypatch):
+    # the real (non --print) dispatch path: writes hooks to a temp CLAUDE_CONFIG_DIR
+    # and does a local-only first sync. --no-mcp keeps it from touching the real `claude`.
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "dotclaude"))
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    rc = main(
+        [
+            "init",
+            "--home",
+            str(tmp_path / "store"),
+            "--machine-id",
+            "box",
+            "--local-only",
+            "--yes",
+            "--no-mcp",
+        ]
+    )
+    assert rc == 0
+    assert (tmp_path / "dotclaude" / "settings.json").exists()
+    assert (tmp_path / "store" / "memory" / ".git").is_dir()
+
+
+def test_init_parser_rejects_conflicting_flags():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["init", "--remote", "x", "--local-only"])
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["init", "--command", "x", "--uv-project", "y"])
