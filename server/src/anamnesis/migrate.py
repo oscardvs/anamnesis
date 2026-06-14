@@ -13,7 +13,11 @@ history is the undo.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
+from pathlib import Path
+
+import yaml
 
 _FM_DELIM = "---\n"
 _PROJECT_LINE = re.compile(r"^project:.*$", re.MULTILINE)
@@ -48,3 +52,84 @@ def rekey_front_matter(text: str, new_project: str) -> str:
         raise ValueError("front-matter has no project field")
     new_front = _PROJECT_LINE.sub(f"project: {new_project}", front_str, count=1)
     return _FM_DELIM + new_front + sep + body
+
+
+def _iter_notes(memory_dir: Path | str) -> Iterator[tuple[Path, str, str, str, str]]:
+    """Yield ``(path, text, id, type, project)`` for each well-formed note file.
+
+    Malformed files (no front-matter, unterminated, no ``id``) are skipped so the
+    migration never aborts on a stray file.
+    """
+    for path in sorted(Path(memory_dir).rglob("*.md")):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if not text.startswith(_FM_DELIM):
+            continue
+        front_str, sep, _body = text[len(_FM_DELIM) :].partition("\n" + _FM_DELIM)
+        if not sep:
+            continue
+        try:
+            meta = yaml.safe_load(front_str)
+        except yaml.YAMLError:
+            continue
+        if not isinstance(meta, dict):
+            continue
+        note_id = meta.get("id")
+        if not isinstance(note_id, str):
+            continue
+        note_type = meta.get("type")
+        project = meta.get("project")
+        yield (
+            path,
+            text,
+            note_id,
+            note_type if isinstance(note_type, str) else "",
+            project if isinstance(project, str) else "",
+        )
+
+
+def _target(
+    note_id: str, project: str, project_map: dict[str, str], note_overrides: dict[str, str]
+) -> str | None:
+    """The new project key for a note (override wins over the project map), or None."""
+    if note_id in note_overrides:
+        return note_overrides[note_id]
+    return project_map.get(project)
+
+
+def plan_migration(
+    memory_dir: Path | str,
+    project_map: dict[str, str],
+    note_overrides: dict[str, str],
+) -> list[Change]:
+    """The re-keys that would happen (read-only).
+
+    Skips notes with no mapping or already at their target.
+    """
+    changes: list[Change] = []
+    for _path, _text, note_id, note_type, project in _iter_notes(memory_dir):
+        new = _target(note_id, project, project_map, note_overrides)
+        if new is not None and new != project:
+            changes.append(Change(note_id, note_type, project, new))
+    return changes
+
+
+def apply_migration(
+    memory_dir: Path | str,
+    project_map: dict[str, str],
+    note_overrides: dict[str, str],
+) -> list[Change]:
+    """Rewrite the ``project`` field of every changed note. Idempotent (skips no-ops)."""
+    applied: list[Change] = []
+    for path, text, note_id, note_type, project in _iter_notes(memory_dir):
+        new = _target(note_id, project, project_map, note_overrides)
+        if new is None or new == project:
+            continue
+        try:
+            path.write_text(rekey_front_matter(text, new), encoding="utf-8")
+        except (OSError, ValueError):
+            continue
+        applied.append(Change(note_id, note_type, project, new))
+    return applied
