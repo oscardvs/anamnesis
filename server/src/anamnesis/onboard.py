@@ -12,6 +12,7 @@ import shlex
 import shutil
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 Which = Callable[[str], str | None]
 
@@ -124,3 +125,43 @@ def build_hooks(base: list[str], env: dict[str, str]) -> HooksMap:
             }
         ],
     }
+
+
+_HOOK_MARKERS = ("anamnesis inject", "anamnesis sync", "anamnesis capture")
+
+
+def _is_anamnesis_group(group: Any) -> bool:
+    """True if a matcher-group holds a command this tool installs (by command marker)."""
+    if not isinstance(group, dict):
+        return False
+    hooks = group.get("hooks")
+    if not isinstance(hooks, list):
+        return False
+    for h in hooks:
+        cmd = h.get("command") if isinstance(h, dict) else None
+        if isinstance(cmd, str) and any(m in cmd for m in _HOOK_MARKERS):
+            return True
+    return False
+
+
+def merge_hooks(settings: dict[str, Any], new_hooks: HooksMap) -> dict[str, Any]:
+    """Merge our hooks into existing settings idempotently.
+
+    Drops any prior anamnesis matcher-groups (identified by command marker), keeps
+    every other top-level key and any non-anamnesis hooks, then inserts ours.
+    """
+    result: dict[str, Any] = dict(settings)
+    existing = result.get("hooks")
+    merged: dict[str, list[Any]] = {}
+    if isinstance(existing, dict):
+        for event, groups in existing.items():
+            if isinstance(groups, list):
+                kept = [g for g in groups if not _is_anamnesis_group(g)]
+                if kept:
+                    merged[event] = kept
+            else:
+                merged[event] = groups
+    for event, groups in new_hooks.items():
+        merged[event] = [*merged.get(event, []), *groups]
+    result["hooks"] = merged
+    return result

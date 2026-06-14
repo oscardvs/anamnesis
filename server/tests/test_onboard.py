@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from anamnesis.onboard import build_env, build_hooks, detect_command
+from anamnesis.onboard import build_env, build_hooks, detect_command, merge_hooks
 
 
 def test_detect_prefers_explicit_command_override():
@@ -78,3 +78,57 @@ def test_build_hooks_quotes_values_with_spaces():
     hooks = build_hooks(["/bin/anamnesis"], {"ANAMNESIS_MACHINE_ID": "my box"})
     cmd = hooks["SessionStart"][0]["hooks"][0]["command"]
     assert "ANAMNESIS_MACHINE_ID='my box'" in cmd
+
+
+def _anamnesis_hooks():
+    return build_hooks(["/bin/anamnesis"], {"ANAMNESIS_MACHINE_ID": "box"})
+
+
+def test_merge_preserves_other_settings_keys():
+    settings = {"model": "opus", "statusLine": {"type": "x"}}
+    merged = merge_hooks(settings, _anamnesis_hooks())
+    assert merged["model"] == "opus"
+    assert merged["statusLine"] == {"type": "x"}
+    assert "SessionStart" in merged["hooks"]
+
+
+def test_merge_preserves_non_anamnesis_hooks():
+    settings = {
+        "hooks": {
+            "PreToolUse": [{"hooks": [{"type": "command", "command": "/usr/bin/guard --check"}]}]
+        }
+    }
+    merged = merge_hooks(settings, _anamnesis_hooks())
+    assert merged["hooks"]["PreToolUse"][0]["hooks"][0]["command"] == "/usr/bin/guard --check"
+    assert "SessionEnd" in merged["hooks"]
+
+
+def test_merge_is_idempotent_does_not_duplicate():
+    settings: dict = {}
+    once = merge_hooks(settings, _anamnesis_hooks())
+    twice = merge_hooks(once, _anamnesis_hooks())
+    assert once == twice
+    assert len(twice["hooks"]["SessionStart"]) == 2
+
+
+def test_merge_drops_stale_anamnesis_group_in_shared_event():
+    # an event that holds both an anamnesis group and a user group
+    settings = {
+        "hooks": {
+            "SessionStart": [
+                {
+                    "matcher": "startup",
+                    "hooks": [{"type": "command", "command": "old anamnesis inject"}],
+                },
+                {
+                    "matcher": "startup",
+                    "hooks": [{"type": "command", "command": "/usr/bin/notify"}],
+                },
+            ]
+        }
+    }
+    merged = merge_hooks(settings, _anamnesis_hooks())
+    cmds = [h["command"] for g in merged["hooks"]["SessionStart"] for h in g["hooks"]]
+    assert "old anamnesis inject" not in cmds
+    assert "/usr/bin/notify" in cmds
+    assert any(c.endswith("anamnesis inject") for c in cmds)
