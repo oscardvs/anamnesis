@@ -1,6 +1,13 @@
 from pathlib import Path
 
-from anamnesis.onboard import build_env, build_hooks, detect_command, merge_hooks
+from anamnesis.onboard import (
+    build_env,
+    build_hooks,
+    build_mcp_add_argv,
+    build_mcp_remove_argv,
+    detect_command,
+    merge_hooks,
+)
 
 
 def test_detect_prefers_explicit_command_override():
@@ -132,3 +139,28 @@ def test_merge_drops_stale_anamnesis_group_in_shared_event():
     assert "old anamnesis inject" not in cmds
     assert "/usr/bin/notify" in cmds
     assert any(c.endswith("anamnesis inject") for c in cmds)
+
+
+def test_build_mcp_add_argv_user_scope_env_and_command():
+    argv = build_mcp_add_argv(
+        ["/bin/anamnesis"],
+        {"ANAMNESIS_MACHINE_ID": "box", "ANAMNESIS_GIT_REMOTE": "me@h:m.git"},
+        "anamnesis",
+    )
+    assert argv[:7] == ["claude", "mcp", "add", "--scope", "user", "--transport", "stdio"]
+    assert "--env" in argv and "ANAMNESIS_MACHINE_ID=box" in argv
+    assert "ANAMNESIS_GIT_REMOTE=me@h:m.git" in argv
+    sep = argv.index("--")
+    assert argv[sep - 1] == "anamnesis"  # the server name precedes the separator
+    assert argv[sep + 1 :] == ["/bin/anamnesis", "serve"]
+
+
+def test_build_mcp_remove_argv():
+    assert build_mcp_remove_argv("anamnesis") == [
+        "claude",
+        "mcp",
+        "remove",
+        "--scope",
+        "user",
+        "anamnesis",
+    ]

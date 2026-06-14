@@ -127,6 +127,20 @@ def build_hooks(base: list[str], env: dict[str, str]) -> HooksMap:
     }
 
 
+def build_mcp_add_argv(base: list[str], env: dict[str, str], name: str = "anamnesis") -> list[str]:
+    """``claude mcp add`` argv registering the stdio server at user scope with env."""
+    argv = ["claude", "mcp", "add", "--scope", "user", "--transport", "stdio"]
+    for k, v in env.items():
+        argv += ["--env", f"{k}={v}"]
+    argv += [name, "--", *base, "serve"]
+    return argv
+
+
+def build_mcp_remove_argv(name: str = "anamnesis") -> list[str]:
+    """``claude mcp remove`` argv (best-effort, for idempotent re-registration)."""
+    return ["claude", "mcp", "remove", "--scope", "user", name]
+
+
 _HOOK_MARKERS = ("anamnesis inject", "anamnesis sync", "anamnesis capture")
 
 
