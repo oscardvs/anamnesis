@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
+from anamnesis.store import Memory, MemoryStore
+
 _EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 
 
@@ -152,3 +154,28 @@ def resolve_summarizer() -> Summarizer:
     """
     provider = os.environ.get("ANAMNESIS_REFLECTION_PROVIDER", "heuristic").lower()
     return _SUMMARIZERS.get(provider, _make_heuristic)()
+
+
+def write_episodic(
+    store: MemoryStore,
+    session: ParsedSession,
+    *,
+    summarizer: Summarizer,
+    project: str,
+    source: str,
+    machine_id: str,
+) -> Memory:
+    """Build and persist the episodic note. No sync; the caller orchestrates that.
+
+    ``source`` (``session-end`` or ``precompact``) is recorded as a tag for now; a
+    first-class ``prov_source`` column is a backlog follow-up (architecture section 8).
+    """
+    title, body = summarizer.summarize(session)
+    return store.write(
+        type="episodic",
+        title=title,
+        body=body,
+        project=project,
+        machine_id=machine_id,
+        tags=["session", source],
+    )

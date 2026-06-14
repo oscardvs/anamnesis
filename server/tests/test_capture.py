@@ -5,7 +5,9 @@ from anamnesis.capture import (
     ParsedSession,
     parse_transcript,
     resolve_summarizer,
+    write_episodic,
 )
+from anamnesis.store import MemoryStore
 
 
 def _line(obj):
@@ -124,3 +126,21 @@ def test_resolve_summarizer_defaults_to_heuristic(monkeypatch):
     assert isinstance(resolve_summarizer(), HeuristicSummarizer)
     monkeypatch.setenv("ANAMNESIS_REFLECTION_PROVIDER", "some-future-model")
     assert isinstance(resolve_summarizer(), HeuristicSummarizer)
+
+
+def test_write_episodic_persists_with_source_tag(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    session = ParsedSession(first_prompt="Do a thing", last_outcome="Did it")
+    mem = write_episodic(
+        store,
+        session,
+        summarizer=HeuristicSummarizer(),
+        project="proj",
+        source="precompact",
+        machine_id="desktop",
+    )
+    assert mem.type == "episodic"
+    assert mem.project == "proj"
+    assert mem.machine_id == "desktop"
+    assert "precompact" in mem.tags
+    assert mem.id in [x.id for x in store.list(project="proj")]
