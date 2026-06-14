@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from anamnesis.onboard import detect_command
+from anamnesis.onboard import build_env, detect_command
 
 
 def test_detect_prefers_explicit_command_override():
@@ -36,3 +36,14 @@ def test_detect_uv_project_override_uses_bare_uv_when_not_on_path():
     base = detect_command(override_uv_project="/home/x/anamnesis/server", which=lambda c: None)
     assert base[0] == "uv"
     assert base[-1] == "anamnesis"
+
+
+def test_build_env_machine_id_always_present():
+    env = build_env(machine_id="box", remote=None, home=None)
+    assert env == {"ANAMNESIS_MACHINE_ID": "box"}
+
+
+def test_build_env_includes_remote_and_home_when_given():
+    env = build_env(machine_id="box", remote="me@host:mem.git", home=Path("/data/anam"))
+    assert env["ANAMNESIS_GIT_REMOTE"] == "me@host:mem.git"
+    assert env["ANAMNESIS_HOME"] == "/data/anam"

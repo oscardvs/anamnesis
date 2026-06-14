@@ -47,3 +47,17 @@ def detect_command(
         return [str(Path(found).resolve())]
     uv = which("uv") or "uv"
     return [uv, "run", "--project", str(_server_dir()), "anamnesis"]
+
+
+def build_env(*, machine_id: str, remote: str | None, home: Path | None) -> dict[str, str]:
+    """The ``ANAMNESIS_*`` values to embed (machine id always; remote/home when set).
+
+    ``home`` is passed only when it differs from the ``~/.anamnesis`` default; the
+    caller decides that and passes ``None`` to omit it.
+    """
+    env = {"ANAMNESIS_MACHINE_ID": machine_id}
+    if remote:
+        env["ANAMNESIS_GIT_REMOTE"] = remote
+    if home is not None:
+        env["ANAMNESIS_HOME"] = str(home)
+    return env
