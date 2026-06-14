@@ -287,11 +287,13 @@ def _resolve_remote(opts: InitOptions, prompt: Prompt) -> str | None:
 def run_init(
     opts: InitOptions,
     *,
-    prompt: Prompt = default_prompt,
+    prompt: Prompt | None = None,
     runner: Runner = subprocess_runner,
     which: Which = _default_which,
 ) -> int:
     """Configure Claude Code (MCP + hooks), set up the store, and run a first sync."""
+    if prompt is None:
+        prompt = default_prompt if opts.yes else tty_prompt
     home = opts.home or (
         _DEFAULT_HOME if opts.yes else Path(prompt("store home", str(_DEFAULT_HOME))).expanduser()
     )

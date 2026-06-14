@@ -255,7 +255,7 @@ def test_run_init_writes_hooks_registers_mcp_and_syncs(tmp_path, monkeypatch):
     assert any("anamnesis inject" in c for c in cmds)
     assert all("ANAMNESIS_MACHINE_ID=testbox" in c for c in cmds)
 
-    assert any("add" in argv for argv in calls)  # claude mcp add ran
+    assert any(argv[:3] == ["claude", "mcp", "add"] for argv in calls)  # claude mcp add ran
     assert (tmp_path / "store" / "memory" / ".git").is_dir()  # first sync inited the repo
 
 
@@ -329,3 +329,67 @@ def test_run_init_sync_failure_is_not_fatal(tmp_path, monkeypatch, capsys):
     assert rc == 0  # a failed sync is a warning, not a crash
     assert "sync" in capsys.readouterr().out.lower()
     assert (tmp_path / "dotclaude" / "settings.json").exists()  # hooks still installed
+
+
+def test_run_init_no_hooks_skips_settings(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "dotclaude"))
+    rc = run_init(
+        InitOptions(
+            home=tmp_path / "store",
+            machine_id="box",
+            local_only=True,
+            yes=True,
+            no_hooks=True,
+            no_mcp=True,
+        ),
+        prompt=lambda label, default: default,
+        runner=lambda argv: (0, ""),
+        which=_which_all_present(tmp_path),
+    )
+    assert rc == 0
+    assert not (tmp_path / "dotclaude" / "settings.json").exists()
+    assert (tmp_path / "store" / "memory" / ".git").is_dir()  # sync still ran
+
+
+def test_run_init_reports_mcp_add_failure_nonfatal(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "dotclaude"))
+    rc = run_init(
+        InitOptions(home=tmp_path / "store", machine_id="box", local_only=True, yes=True),
+        prompt=lambda label, default: default,
+        runner=lambda argv: (1, "boom") if "add" in argv else (0, ""),
+        which=_which_all_present(tmp_path),
+    )
+    assert rc == 0  # an mcp add failure is reported, not fatal
+    assert "mcp: add failed" in capsys.readouterr().out
+    assert (tmp_path / "dotclaude" / "settings.json").exists()  # hooks still installed
+
+
+def test_run_init_interactive_threads_prompted_values(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "dotclaude"))
+    home = tmp_path / "picked-store"
+    answers = {
+        "store home": str(home),
+        "machine id": "prompted-box",
+        "sync remote": "",  # blank -> local-only
+        "command form": "/custom/anamnesis",
+    }
+
+    def prompt(label, default):
+        for key, val in answers.items():
+            if label.startswith(key):
+                return val
+        return default
+
+    rc = run_init(
+        InitOptions(yes=False, no_mcp=True),  # interactive, skip mcp registration
+        prompt=prompt,
+        runner=lambda argv: (0, ""),
+        which=_which_all_present(tmp_path),
+    )
+    assert rc == 0
+    settings = json.loads((tmp_path / "dotclaude" / "settings.json").read_text())
+    cmds = [h["command"] for g in settings["hooks"]["SessionStart"] for h in g["hooks"]]
+    assert all("ANAMNESIS_MACHINE_ID=prompted-box" in c for c in cmds)
+    # command-form override threaded through to hook commands
+    assert any(c.endswith("/custom/anamnesis inject") for c in cmds)
+    assert (home / "memory" / ".git").is_dir()  # store created at the prompted home
