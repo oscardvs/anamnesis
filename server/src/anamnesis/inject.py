@@ -29,12 +29,42 @@ def _normalize_remote(url: str) -> str:
     return u.rstrip("/").lower()
 
 
-def resolve_project_key(cwd: str | Path) -> str:
-    """Best-effort stable project key from a working directory (v0 heuristic).
+def _read_marker(cwd: Path) -> str | None:
+    """First non-empty line of the nearest ``.anamnesis/project`` marker, or None.
 
-    Order: normalized ``origin`` remote, else repo-root dirname, else cwd basename.
+    Searched from ``cwd`` upward, stopping below the home directory (and the
+    filesystem root) so a stray marker at ``$HOME`` cannot hijack every project.
+    Best-effort: read errors are ignored.
+    """
+    home = Path.home()
+    for d in [cwd, *cwd.parents]:
+        if d == home or d == d.parent:
+            break
+        marker = d / ".anamnesis" / "project"
+        try:
+            if marker.is_file():
+                for raw in marker.read_text(encoding="utf-8").splitlines():
+                    line = raw.strip()
+                    if line:
+                        return line
+        except OSError:
+            pass
+    return None
+
+
+def resolve_project_key(cwd: str | Path) -> str:
+    """Best-effort stable project key from a working directory.
+
+    Order: ``.anamnesis/project`` marker (searched up-tree), else normalized
+    ``origin`` remote, else repo-root dirname, else cwd basename. The marker is
+    the explicit, cross-machine-stable override (architecture section 10.2),
+    notably for non-git workspaces where a subdir would otherwise resolve to its
+    bare basename.
     """
     cwd = Path(cwd)
+    marker = _read_marker(cwd)
+    if marker:
+        return marker
     try:
         remote = subprocess.run(
             ["git", "-C", str(cwd), "remote", "get-url", "origin"],

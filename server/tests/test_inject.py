@@ -86,3 +86,42 @@ def test_render_inject_includes_title_body_and_provenance(tmp_path):
 def test_render_inject_empty_is_blank(tmp_path):
     store = MemoryStore(root=tmp_path)
     assert render_inject(select_inject(store, project="p", k=8)) == ""
+
+
+def test_resolve_project_key_marker_in_cwd_wins(tmp_path):
+    (tmp_path / ".anamnesis").mkdir()
+    (tmp_path / ".anamnesis" / "project").write_text("pinned-key\n", encoding="utf-8")
+    assert resolve_project_key(tmp_path) == "pinned-key"
+
+
+def test_resolve_project_key_marker_found_up_tree(tmp_path):
+    (tmp_path / ".anamnesis").mkdir()
+    (tmp_path / ".anamnesis" / "project").write_text("ros2_ws\n", encoding="utf-8")
+    sub = tmp_path / "src" / "pkg"
+    sub.mkdir(parents=True)
+    assert resolve_project_key(sub) == "ros2_ws"
+
+
+def test_resolve_project_key_marker_beats_git_remote(tmp_path):
+    _git(tmp_path, "init", "-b", "main")
+    _git(tmp_path, "remote", "add", "origin", "git@github.com:oscardvs/anamnesis.git")
+    (tmp_path / ".anamnesis").mkdir()
+    (tmp_path / ".anamnesis" / "project").write_text("pinned-key\n", encoding="utf-8")
+    assert resolve_project_key(tmp_path) == "pinned-key"
+
+
+def test_resolve_project_key_blank_marker_falls_through(tmp_path):
+    d = tmp_path / "PlainDir"
+    (d / ".anamnesis").mkdir(parents=True)
+    (d / ".anamnesis" / "project").write_text("   \n\n", encoding="utf-8")
+    assert resolve_project_key(d) == "plaindir"  # blank marker ignored -> basename
+
+
+def test_resolve_project_key_marker_not_read_at_or_above_home(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    proj = home / "proj"
+    proj.mkdir(parents=True)
+    (home / ".anamnesis").mkdir()
+    (home / ".anamnesis" / "project").write_text("home-level\n", encoding="utf-8")
+    monkeypatch.setattr("pathlib.Path.home", lambda: home)
+    assert resolve_project_key(proj) == "proj"  # home marker not picked up
