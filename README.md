@@ -66,6 +66,19 @@ uv venv --python 3.12
 uv pip install -e ".[mcp,dev]"
 ```
 
+Then wire this machine up in one command. `anamnesis init` registers the MCP server at user
+scope, installs the SessionStart / SessionEnd / PreCompact hooks, configures the store and your
+sync remote, and runs a first sync. It is idempotent (backs up `settings.json`, never duplicates
+a hook) and `--print` shows the full plan without writing anything:
+
+```bash
+uv run anamnesis init            # interactive: confirm store dir, machine id, remote
+uv run anamnesis init --print    # dry-run: show exactly what it would do
+```
+
+Once the package is published you will be able to do the whole thing in one line:
+`uv tool install anamnesis && anamnesis init`.
+
 The repo ships a project-scoped `.mcp.json` that registers the server with Claude Code, exposing five
 tools: `memory_search` / `memory_list` / `memory_status` (read-only, auto-approvable), `memory_write`,
 and `memory_sync`. Configure it via the server's `.mcp.json` `"env"` block - `ANAMNESIS_HOME`,
@@ -96,9 +109,10 @@ Claude Code hooks make memory automatic, so the cross-machine round-trip needs z
   the outcome) and syncs it, so it is on your other machines by the next session.
 - **PreCompact** captures the same kind of note before the context is compacted, so nothing is lost.
 
-Copy [`examples/hooks.settings.json`](./examples/hooks.settings.json) into your per-machine
-`~/.claude/settings.json` (the Claude Code `update-config` skill can merge it for you), and replace
-`/ABSOLUTE/PATH/TO/anamnesis/server` with this machine's checkout path. `settings.json` is per-machine and
+`anamnesis init` (see Quickstart) installs these hooks for you. To set them up by hand instead,
+copy [`examples/hooks.settings.json`](./examples/hooks.settings.json) into your per-machine
+`~/.claude/settings.json` and replace `/ABSOLUTE/PATH/TO/anamnesis/server` with this machine's
+checkout path. `settings.json` is per-machine and
 is not synced, so each machine points at its own checkout. The thin `anamnesis` CLI the hooks call
 (`inject` / `capture` / `sync` / `status`, alongside `serve`) reads the same `ANAMNESIS_*` configuration
 as the server.
