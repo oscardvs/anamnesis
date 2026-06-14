@@ -50,21 +50,57 @@ agent's memory across the machines you already own.** That gap is Anamnesis.
   are added only when keyword search demonstrably falls short.
 - **Robust sync.** Markdown is synced via git over your private [Tailscale](https://tailscale.com) mesh and
   the index is rebuilt locally - so the database file is never synced and never corrupts.
-- **Claude-Code-native.** Ships as an MCP server with read-only auto-query tools, plus session hooks that
+- **Claude-Code-native.** Ships as an MCP server with read-only auto-query tools; session hooks (coming)
   surface relevant memory at the start of a session and capture durable notes at the end.
 - **A git-like memory GUI.** A dashboard to browse, search, edit, and see the history of your memory across
   every machine.
 
+## Quickstart
+
+Anamnesis runs as a local MCP server over a store at `~/.anamnesis` (markdown notes plus a SQLite
+index that is rebuilt locally).
+
+```bash
+cd server
+uv venv --python 3.12
+uv pip install -e ".[mcp,dev]"
+```
+
+The repo ships a project-scoped `.mcp.json` that registers the server with Claude Code, exposing five
+tools: `memory_search` / `memory_list` / `memory_status` (read-only, auto-approvable), `memory_write`,
+and `memory_sync`. Configure it via the server's `.mcp.json` `"env"` block - `ANAMNESIS_HOME`,
+`ANAMNESIS_MACHINE_ID`, `ANAMNESIS_GIT_REMOTE` (Claude Code launches MCP servers with a filtered
+environment, so shell exports are not inherited). Full server docs: [`server/README.md`](./server/README.md).
+
+## Cross-machine sync
+
+Memory is a git repo (`~/.anamnesis/memory/`) synced over your [Tailscale](https://tailscale.com) mesh.
+Host one shared **bare** repo on an always-on node and point each machine at it:
+
+```bash
+git init --bare -b main ~/anamnesis-memory.git                                  # once, on the host node
+export ANAMNESIS_GIT_REMOTE='you@host.your-tailnet.ts.net:anamnesis-memory.git' # on each machine
+```
+
+`memory_sync` runs `commit -> pull --rebase -> push` and rebuilds the local index after pulling, so a
+note written on one machine is searchable on the others within a sync cycle. Only markdown is synced;
+the database file is never synced, so it never corrupts.
+
 ## Status
 
-🚧 **Pre-alpha - under active construction.** The architecture is settled and the build is underway.
-Installation instructions and the first release are coming soon. Watch/star to follow along.
+**Phase 0 works - the local-first core.** The file-first store, the FastMCP server
+(`memory_search` / `list` / `status` / `write` / `sync`), and git-over-Tailscale sync are built,
+tested, and validated on real hardware: a note written on the desktop is searchable on the laptop,
+and a full personal corpus round-trips across machines. **Next:** session hooks for automatic capture
+and sync, a one-command installer, and the git-like dashboard.
+
+> Pre-alpha: APIs and setup may still change. Watch/star to follow along.
 
 ## Repository layout
 
 | Path          | What                                                                 |
 | ------------- | -------------------------------------------------------------------- |
-| `server/`     | The MCP memory server (Python, [FastMCP](https://github.com/jlowin/fastmcp)). |
+| `server/`     | The MCP memory server (Python, [FastMCP](https://gofastmcp.com)). |
 | `dashboard/`  | The git-like memory GUI (Next.js).                                   |
 | `scripts/`    | Dev & ops helper scripts.                                            |
 
