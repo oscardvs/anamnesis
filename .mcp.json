@@ -2,7 +2,7 @@
   "mcpServers": {
     "anamnesis": {
       "command": "uv",
-      "args": ["run", "--project", "server", "anamnesis"]
+      "args": ["run", "--project", "server", "anamnesis", "serve"]
     }
   }
 }

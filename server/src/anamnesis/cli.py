@@ -110,3 +110,63 @@ def cmd_capture(args: argparse.Namespace, payload: dict[str, object]) -> int:
     finally:
         store.close()
     return 0
+
+
+def cmd_serve() -> int:
+    """Run the MCP server over stdio. FastMCP is imported lazily (serve-only)."""
+    from anamnesis.server import build_server  # local import keeps the hot path MCP-free
+
+    build_server(MemoryStore(resolve_home())).run()
+    return 0
+
+
+def cmd_sync() -> int:
+    store = MemoryStore(resolve_home())
+    try:
+        result = _run_sync(store, _backend(store))
+        print(
+            f"sync: pushed={result.pushed} pulled={result.pulled} "
+            f"conflicted={result.conflicted} head={result.head} ({result.detail})"
+        )
+    finally:
+        store.close()
+    return 0
+
+
+def cmd_status() -> int:
+    store = MemoryStore(resolve_home())
+    try:
+        stats = store.stats()
+        state = _backend(store).state()
+        print(f"store: {store.root}")
+        print(f"notes: {stats.total}  by_type={stats.by_type}")
+        print(
+            f"sync: initialized={state.initialized} remote={state.remote} "
+            f"head={state.head} dirty={state.dirty} ({state.detail})"
+        )
+    finally:
+        store.close()
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Console entry point: dispatch a subcommand (defaults to ``serve``)."""
+    argv = list(sys.argv[1:]) if argv is None else list(argv)
+    args = build_parser().parse_args(argv)
+    command = args.command or "serve"
+    if command == "serve":
+        return cmd_serve()
+    if command == "sync":
+        return cmd_sync()
+    if command == "status":
+        return cmd_status()
+    payload = read_hook_payload()
+    if command == "inject":
+        return cmd_inject(args, payload)
+    if command == "capture":
+        return cmd_capture(args, payload)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

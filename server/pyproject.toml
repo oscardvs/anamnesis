@@ -41,9 +41,10 @@ dev = [
 Homepage = "https://github.com/oscardvs/anamnesis"
 Repository = "https://github.com/oscardvs/anamnesis"
 
-# Console entry point: launches the FastMCP server over stdio for Claude Code.
+# Console entry point: the CLI the hooks invoke; `anamnesis serve` runs the
+# FastMCP server over stdio (the default when no subcommand is given).
 [project.scripts]
-anamnesis = "anamnesis.server:main"
+anamnesis = "anamnesis.cli:main"
 
 [build-system]
 requires = ["hatchling"]

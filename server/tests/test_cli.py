@@ -5,6 +5,8 @@ from anamnesis.cli import (
     build_parser,
     cmd_capture,
     cmd_inject,
+    cmd_status,
+    main,
     read_hook_payload,
     resolve_command,
 )
@@ -89,3 +91,30 @@ def test_cmd_capture_writes_episodic_note_no_sync(tmp_path, monkeypatch, capsys)
     assert len(notes) == 1
     assert notes[0].title == "Build the hooks"
     assert "session-end" in notes[0].tags
+
+
+def test_cmd_status_reports_counts(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    store = MemoryStore(root=tmp_path / "store")
+    store.write(type="semantic", title="t", body="b", project="p", machine_id="m")
+    store.close()
+    assert cmd_status() == 0
+    assert "notes: 1" in capsys.readouterr().out
+
+
+def test_main_dispatches_status(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    assert main(["status"]) == 0
+    assert "store:" in capsys.readouterr().out
+
+
+def test_main_sync_without_remote_commits_locally(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    store = MemoryStore(root=tmp_path / "store")
+    store.write(type="semantic", title="t", body="b", project="p", machine_id="m")
+    store.close()
+    assert main(["sync"]) == 0
+    assert "sync:" in capsys.readouterr().out
