@@ -13,7 +13,7 @@ them; writes are flagged for confirmation):
 - ``memory_list(project?, type?)``                read-only
 - ``memory_status()``                             read-only
 - ``memory_write(type, title, body, project, tags?)``  write - confirm
-- ``memory_sync(force?)``                         write - stub until sync lands
+- ``memory_sync(force?)``                         write - git pull --rebase && push
 
 The store layer never imports FastMCP; the dependency points one way (server ->
 store) so the engine stays usable without the MCP extra.
@@ -29,6 +29,7 @@ from fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
 from anamnesis.store import Memory, MemoryStore, MemoryType
+from anamnesis.sync import GitSyncBackend, SyncBackend
 
 
 def resolve_home() -> Path:
@@ -40,6 +41,11 @@ def resolve_home() -> Path:
 def resolve_machine_id() -> str:
     """Resolve this machine's id from ``ANAMNESIS_MACHINE_ID`` (default hostname)."""
     return os.environ.get("ANAMNESIS_MACHINE_ID") or socket.gethostname() or "unknown"
+
+
+def resolve_remote() -> str | None:
+    """Resolve the sync remote from ``ANAMNESIS_GIT_REMOTE`` (None if unset)."""
+    return os.environ.get("ANAMNESIS_GIT_REMOTE") or None
 
 
 def _memory_dict(mem: Memory, *, include_body: bool) -> dict[str, object]:
@@ -108,16 +114,41 @@ def write_memory(
     return _memory_dict(mem, include_body=True)
 
 
-def status_report(store: MemoryStore) -> dict[str, object]:
-    """Report index health (counts + paths) and sync state (not yet wired)."""
+def status_report(store: MemoryStore, backend: SyncBackend) -> dict[str, object]:
+    """Report index health (counts + paths) and git sync state."""
     s = store.stats()
+    st = backend.state()
     return {
         "root": str(store.root),
         "db_path": str(store.db_path),
         "total": s.total,
         "by_type": s.by_type,
         "by_project": s.by_project,
-        "sync": {"configured": False, "detail": "git-over-Tailscale sync not yet implemented"},
+        "sync": {
+            "initialized": st.initialized,
+            "remote": st.remote,
+            "head": st.head,
+            "dirty": st.dirty,
+            "detail": st.detail,
+        },
+    }
+
+
+def sync_memory(store: MemoryStore, backend: SyncBackend) -> dict[str, object]:
+    """Run one git sync cycle (commit, pull --rebase, push), then rebuild the index.
+
+    Pulling brings in markdown from other machines; the SQLite index is derived,
+    so it is rebuilt afterwards to keep search in step with the synced files.
+    """
+    r = backend.sync()
+    indexed = store.reindex()
+    return {
+        "pushed": r.pushed,
+        "pulled": r.pulled,
+        "conflicted": r.conflicted,
+        "head": r.head,
+        "indexed": indexed,
+        "detail": r.detail,
     }
 
 
@@ -129,6 +160,7 @@ _READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
 def build_server(store: MemoryStore, *, machine_id: str | None = None) -> FastMCP:
     """Build a FastMCP server whose tools are bound to ``store``."""
     mid = machine_id or resolve_machine_id()
+    backend: SyncBackend = GitSyncBackend(store.memory_dir, remote=resolve_remote(), machine_id=mid)
     mcp: FastMCP = FastMCP(name="anamnesis")
 
     @mcp.tool(annotations=_READ_ONLY)
@@ -162,7 +194,7 @@ def build_server(store: MemoryStore, *, machine_id: str | None = None) -> FastMC
 
         Read-only.
         """
-        return status_report(store)
+        return status_report(store, backend)
 
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False))
     def memory_write(
@@ -185,15 +217,14 @@ def build_server(store: MemoryStore, *, machine_id: str | None = None) -> FastMC
 
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, openWorldHint=True))
     def memory_sync(force: bool = False) -> dict[str, object]:
-        """Sync memory across machines (git over Tailscale). Not yet implemented.
+        """Sync memory across machines: commit local notes, pull --rebase, push.
 
-        Stub until the sync layer lands; reports its status instead of acting.
+        Uses git over the remote in ANAMNESIS_GIT_REMOTE (a bare repo on your
+        Tailscale mesh); with no remote set it just commits locally. On a
+        conflicting edit it surfaces the conflict and keeps local edits rather
+        than dropping either side. The ``force`` flag is reserved for future use.
         """
-        return {
-            "ok": False,
-            "status": "not_implemented",
-            "detail": "git-over-Tailscale sync lands in the next milestone",
-        }
+        return sync_memory(store, backend)
 
     return mcp
 

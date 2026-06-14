@@ -7,6 +7,7 @@ wiring, schemas, and read-only annotations Claude Code actually sees.
 """
 
 import asyncio
+import subprocess
 from pathlib import Path
 
 from fastmcp import Client
@@ -18,9 +19,11 @@ from anamnesis.server import (
     resolve_machine_id,
     search_memories,
     status_report,
+    sync_memory,
     write_memory,
 )
 from anamnesis.store import MemoryStore
+from anamnesis.sync import GitSyncBackend
 
 # -- store root / machine identity resolution --------------------------------
 
@@ -101,16 +104,18 @@ def test_list_memories_returns_metadata_without_body(tmp_path):
     assert "body" not in items[0]  # list returns titles/metadata, not bodies
 
 
-def test_status_report_reports_index_health(tmp_path):
+def test_status_report_reports_index_health_and_sync_state(tmp_path):
     store = MemoryStore(root=tmp_path)
+    backend = GitSyncBackend(store.memory_dir, remote=None, machine_id="t")
     write_memory(store, type="semantic", title="a", body="x", project="p")
     write_memory(store, type="procedural", title="b", body="y", project="p")
-    rep = status_report(store)
+    rep = status_report(store, backend)
     assert rep["total"] == 2
     assert rep["by_type"] == {"semantic": 1, "procedural": 1}
     assert rep["root"] == str(store.root)
     assert rep["db_path"] == str(store.db_path)
-    assert rep["sync"]["configured"] is False  # sync layer not wired yet
+    assert rep["sync"]["initialized"] is False  # no sync run yet
+    assert rep["sync"]["remote"] is None
 
 
 # -- FastMCP wiring (in-memory client, no transport) -------------------------
@@ -161,12 +166,43 @@ def test_end_to_end_write_then_search_via_client(tmp_path):
     assert any(hit["id"] == written["id"] for hit in found)
 
 
-def test_memory_sync_tool_reports_not_implemented(tmp_path):
-    server = build_server(MemoryStore(root=tmp_path))
+def test_sync_memory_reindexes_so_pulled_notes_are_searchable(tmp_path):
+    remote = tmp_path / "remote.git"
+    subprocess.run(
+        ["git", "init", "--bare", "-b", "main", str(remote)], check=True, capture_output=True
+    )
+
+    store_a = MemoryStore(root=tmp_path / "A")
+    backend_a = GitSyncBackend(store_a.memory_dir, remote=str(remote), machine_id="desktop")
+    write_memory(
+        store_a,
+        type="procedural",
+        title="Amsterdam scenario",
+        body="syncs across machines",
+        project="anamnesis",
+    )
+    sync_memory(store_a, backend_a)  # push
+
+    store_b = MemoryStore(root=tmp_path / "B")
+    backend_b = GitSyncBackend(store_b.memory_dir, remote=str(remote), machine_id="laptop")
+    sync_memory(store_b, backend_b)  # pull AND reindex
+
+    # No manual reindex here: the advance-threshold requires the index rebuilt on sync.
+    hits = search_memories(store_b, query="Amsterdam")
+    assert [h["title"] for h in hits] == ["Amsterdam scenario"]
+
+
+def test_memory_sync_without_remote_commits_locally(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    store = MemoryStore(root=tmp_path)
+    write_memory(store, type="semantic", title="note", body="x", project="p")
+    server = build_server(store)
 
     async def run():
         async with Client(server) as client:
             return (await client.call_tool("memory_sync", {})).data
 
     out = asyncio.run(run())
-    assert out["status"] == "not_implemented"
+    assert out["pushed"] is False
+    assert out["conflicted"] is False
+    assert "remote" in out["detail"]  # explains there is no remote configured
