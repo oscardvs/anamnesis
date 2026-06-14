@@ -12,6 +12,10 @@ import argparse
 import json
 import sys
 
+from anamnesis.config import resolve_home
+from anamnesis.inject import render_inject, resolve_project_key, select_inject
+from anamnesis.store import MemoryStore
+
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -53,3 +57,16 @@ def read_hook_payload() -> dict[str, object]:
     except json.JSONDecodeError:
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def cmd_inject(args: argparse.Namespace, payload: dict[str, object]) -> int:
+    """SessionStart: print top notes for the session's project to stdout."""
+    store = MemoryStore(resolve_home())
+    try:
+        project = args.project or resolve_project_key(str(payload.get("cwd") or "."))
+        text = render_inject(select_inject(store, project=project, k=args.k))
+        if text:
+            sys.stdout.write(text)
+    finally:
+        store.close()
+    return 0
