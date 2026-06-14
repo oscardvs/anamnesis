@@ -15,19 +15,26 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-  # The MCP substrate. Pinned loosely until the server module lands.
-  "fastmcp>=2.0",
+  # Core store: markdown front-matter + stable ULID ids. The store layer is
+  # deliberately independent of the MCP server layer (no fastmcp dependency here).
+  "pyyaml>=6",
+  "python-ulid>=2",
 ]
 
 [project.optional-dependencies]
-dev = [
-  "pytest>=8",
-  "ruff>=0.6",
-  "mypy>=1.10",
+# The MCP server layer (installed when server.py lands).
+mcp = [
+  "fastmcp>=3.0",
 ]
 # Optional semantic recall - added only when keyword search proves insufficient.
 vectors = [
   "sqlite-vec>=0.1",
+]
+dev = [
+  "pytest>=8",
+  "ruff>=0.6",
+  "mypy>=1.10",
+  "types-PyYAML>=6",
 ]
 
 [project.urls]

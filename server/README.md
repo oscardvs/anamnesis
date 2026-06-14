@@ -22,13 +22,16 @@ auto-approve so memory "just works" at session start.
 
 ```bash
 # from server/
-uv venv && source .venv/bin/activate
+uv venv --python 3.12
 uv pip install -e ".[dev]"
 
-ruff check . && ruff format --check .
-mypy src
-pytest
+uv run ruff check src tests && uv run ruff format --check src tests
+uv run mypy src
+uv run pytest
 ```
+
+> Machine-local note: if this host sources ROS 2 (it puts `launch_testing` on `PYTHONPATH`),
+> run tests isolated from it: `PYTHONPATH= PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest`.
 
 ## Storage layout (runtime)
 
