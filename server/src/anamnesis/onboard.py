@@ -12,10 +12,16 @@ import json
 import os
 import shlex
 import shutil
+import socket
+import subprocess
 import tempfile
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from anamnesis.store import MemoryStore
+from anamnesis.sync import GitSyncBackend, SyncError
 
 Which = Callable[[str], str | None]
 
@@ -225,3 +231,150 @@ def write_settings(path: Path, data: dict[str, Any]) -> None:
         if os.path.exists(tmp):
             os.unlink(tmp)
         raise
+
+
+Prompt = Callable[[str, str], str]
+Runner = Callable[[list[str]], tuple[int, str]]
+
+_DEFAULT_HOME = Path.home() / ".anamnesis"
+
+
+def default_prompt(label: str, default: str) -> str:
+    """Non-interactive prompt: always take the default (used with ``--yes``)."""
+    return default
+
+
+def tty_prompt(label: str, default: str) -> str:
+    """Interactive prompt: read a line, falling back to the default on blank input."""
+    raw = input(f"{label} [{default}]: ").strip()
+    return raw or default
+
+
+def subprocess_runner(argv: list[str]) -> tuple[int, str]:
+    """Run a command, returning (returncode, combined stdout+stderr)."""
+    proc = subprocess.run(argv, capture_output=True, text=True)
+    return proc.returncode, proc.stdout + proc.stderr
+
+
+@dataclass
+class InitOptions:
+    """Raw inputs to ``run_init`` (from CLI flags); ``run_init`` resolves the rest."""
+
+    home: Path | None = None
+    machine_id: str | None = None
+    remote: str | None = None
+    local_only: bool = False
+    override_command: str | None = None
+    override_uv_project: str | None = None
+    name: str = "anamnesis"
+    no_mcp: bool = False
+    no_hooks: bool = False
+    no_sync: bool = False
+    yes: bool = False
+    print_only: bool = False
+
+
+def _resolve_remote(opts: InitOptions, prompt: Prompt) -> str | None:
+    if opts.local_only:
+        return None
+    if opts.remote:
+        return opts.remote
+    if opts.yes:
+        return None
+    return prompt("sync remote (blank = local-only)", "") or None
+
+
+def run_init(
+    opts: InitOptions,
+    *,
+    prompt: Prompt = default_prompt,
+    runner: Runner = subprocess_runner,
+    which: Which = _default_which,
+) -> int:
+    """Configure Claude Code (MCP + hooks), set up the store, and run a first sync."""
+    home = opts.home or (
+        _DEFAULT_HOME if opts.yes else Path(prompt("store home", str(_DEFAULT_HOME))).expanduser()
+    )
+    machine_id = opts.machine_id or (
+        socket.gethostname() if opts.yes else prompt("machine id", socket.gethostname())
+    )
+    remote = _resolve_remote(opts, prompt)
+    base = detect_command(
+        override_command=opts.override_command,
+        override_uv_project=opts.override_uv_project,
+        which=which,
+    )
+    if not opts.yes and not opts.override_command and not opts.override_uv_project:
+        shown = " ".join(base)
+        entered = prompt("command form", shown)
+        if entered and entered != shown:
+            base = shlex.split(entered)
+    env = build_env(
+        machine_id=machine_id,
+        remote=remote,
+        home=None if home == _DEFAULT_HOME else home,
+    )
+
+    if opts.print_only:
+        print("init plan (dry-run; nothing written):")
+        print(f"  store home : {home}")
+        print(f"  machine id : {machine_id}")
+        print(f"  remote     : {remote or '(local-only)'}")
+        print(f"  command    : {' '.join(base)}")
+        if not opts.no_mcp:
+            print(f"  mcp add    : {' '.join(build_mcp_add_argv(base, env, opts.name))}")
+        if not opts.no_hooks:
+            print(
+                f"  hooks      : {', '.join(build_hooks(base, env))}"
+                f" -> {claude_dir() / 'settings.json'}"
+            )
+        return 0
+
+    # Pre-flight: fail fast on an unparseable settings file BEFORE any side effect.
+    settings_path = claude_dir() / "settings.json"
+    existing_settings: dict[str, Any] = {}
+    if not opts.no_hooks:
+        try:
+            existing_settings = read_settings(settings_path)
+        except ValueError as exc:
+            print(
+                f"init: refusing to run; {settings_path} is not valid JSON"
+                f" ({exc}); fix it and re-run"
+            )
+            return 1
+
+    if not opts.no_mcp:
+        if which("claude"):
+            runner(build_mcp_remove_argv(opts.name))
+            rc, out = runner(build_mcp_add_argv(base, env, opts.name))
+            print(
+                f"mcp: registered {opts.name} (user scope)"
+                if rc == 0
+                else f"mcp: add failed: {out.strip()}"
+            )
+        else:
+            print("mcp: `claude` not found on PATH; run this yourself:")
+            print(f"  {' '.join(build_mcp_add_argv(base, env, opts.name))}")
+
+    if not opts.no_hooks:
+        merged = merge_hooks(existing_settings, build_hooks(base, env))
+        write_settings(settings_path, merged)
+        print(f"hooks: installed SessionStart/SessionEnd/PreCompact -> {settings_path}")
+
+    if not opts.no_sync:
+        store = MemoryStore(home)
+        try:
+            backend = GitSyncBackend(store.memory_dir, remote=remote, machine_id=machine_id)
+            try:
+                result = backend.sync()
+                store.reindex()
+                print(f"sync: pushed={result.pushed} pulled={result.pulled} ({result.detail})")
+            except SyncError as exc:
+                print(f"sync: skipped ({exc}); fix the remote and run `anamnesis sync`")
+        finally:
+            store.close()
+
+    print(
+        "init: done. Start a new Claude Code session for the MCP server and hooks to take effect."
+    )
+    return 0

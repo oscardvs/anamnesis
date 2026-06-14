@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from anamnesis.onboard import (
+    InitOptions,
     build_env,
     build_hooks,
     build_mcp_add_argv,
@@ -12,6 +13,7 @@ from anamnesis.onboard import (
     detect_command,
     merge_hooks,
     read_settings,
+    run_init,
     write_settings,
 )
 
@@ -224,3 +226,106 @@ def test_write_settings_creates_parent(tmp_path):
     p = tmp_path / "cc" / "settings.json"
     write_settings(p, {"k": 1})
     assert json.loads(p.read_text()) == {"k": 1}
+
+
+def _which_all_present(tmp_path):
+    table = {
+        "claude": "/usr/bin/claude",
+        "anamnesis": str(tmp_path / "bin" / "anamnesis"),
+        "uv": "/usr/bin/uv",
+    }
+    return lambda c: table.get(c)
+
+
+def test_run_init_writes_hooks_registers_mcp_and_syncs(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "dotclaude"))
+    calls: list[list[str]] = []
+
+    opts = InitOptions(home=tmp_path / "store", machine_id="testbox", local_only=True, yes=True)
+    rc = run_init(
+        opts,
+        prompt=lambda label, default: default,
+        runner=lambda argv: calls.append(argv) or (0, ""),
+        which=_which_all_present(tmp_path),
+    )
+    assert rc == 0
+
+    settings = json.loads((tmp_path / "dotclaude" / "settings.json").read_text())
+    cmds = [h["command"] for g in settings["hooks"]["SessionStart"] for h in g["hooks"]]
+    assert any("anamnesis inject" in c for c in cmds)
+    assert all("ANAMNESIS_MACHINE_ID=testbox" in c for c in cmds)
+
+    assert any("add" in argv for argv in calls)  # claude mcp add ran
+    assert (tmp_path / "store" / "memory" / ".git").is_dir()  # first sync inited the repo
+
+
+def test_run_init_print_writes_nothing(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "dotclaude"))
+    opts = InitOptions(
+        home=tmp_path / "store", machine_id="box", local_only=True, yes=True, print_only=True
+    )
+    rc = run_init(
+        opts,
+        prompt=lambda label, default: default,
+        runner=lambda argv: (0, ""),
+        which=_which_all_present(tmp_path),
+    )
+    assert rc == 0
+    assert "plan" in capsys.readouterr().out.lower()
+    assert not (tmp_path / "dotclaude" / "settings.json").exists()
+    assert not (tmp_path / "store").exists()
+
+
+def test_run_init_without_claude_prints_manual_mcp_line(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "dotclaude"))
+    opts = InitOptions(home=tmp_path / "store", machine_id="box", local_only=True, yes=True)
+    rc = run_init(
+        opts,
+        prompt=lambda label, default: default,
+        runner=lambda argv: (0, ""),
+        which=lambda c: None,  # nothing on PATH: no claude, no anamnesis, no uv
+    )
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "claude mcp add" in out  # manual fallback printed
+    assert (tmp_path / "dotclaude" / "settings.json").exists()  # hooks still installed
+
+
+def test_run_init_aborts_on_unparseable_settings(tmp_path, monkeypatch, capsys):
+    cc = tmp_path / "dotclaude"
+    cc.mkdir()
+    (cc / "settings.json").write_text("{ not json", encoding="utf-8")
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(cc))
+    calls: list[list[str]] = []
+
+    opts = InitOptions(home=tmp_path / "store", machine_id="box", local_only=True, yes=True)
+    rc = run_init(
+        opts,
+        prompt=lambda label, default: default,
+        runner=lambda argv: calls.append(argv) or (0, ""),
+        which=_which_all_present(tmp_path),
+    )
+    assert rc == 1
+    assert "not valid JSON" in capsys.readouterr().out
+    assert calls == []  # aborted before registering the MCP server
+    assert not (tmp_path / "store").exists()  # and before the first sync
+
+
+def test_run_init_sync_failure_is_not_fatal(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "dotclaude"))
+    opts = InitOptions(
+        home=tmp_path / "store",
+        machine_id="box",
+        remote="/nonexistent/anam-memory.git",  # push will fail
+        yes=True,
+        no_mcp=True,
+    )
+    rc = run_init(
+        opts,
+        prompt=lambda label, default: default,
+        runner=lambda argv: (0, ""),
+        which=_which_all_present(tmp_path),
+    )
+    assert rc == 0  # a failed sync is a warning, not a crash
+    assert "sync" in capsys.readouterr().out.lower()
+    assert (tmp_path / "dotclaude" / "settings.json").exists()  # hooks still installed
