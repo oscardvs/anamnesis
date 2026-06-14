@@ -60,6 +60,15 @@ class Memory:
     updated_at: str = ""
 
 
+@dataclass
+class StoreStats:
+    """Aggregate index health, surfaced by ``memory_status`` (architecture §5.1)."""
+
+    total: int
+    by_type: dict[str, int]
+    by_project: dict[str, int]
+
+
 def _serialize(mem: Memory) -> str:
     """Render a Memory as a markdown file: YAML front-matter + body."""
     meta = {
@@ -134,7 +143,10 @@ class MemoryStore:
         self.memory_dir = self.root / "memory"
         self.db_path = self.root / "index.db"
         self.memory_dir.mkdir(parents=True, exist_ok=True)
-        self._db = sqlite3.connect(self.db_path)
+        # check_same_thread=False: the FastMCP server runs sync tools in a worker
+        # threadpool, so the connection is shared across threads. SQLite's
+        # serialized threadsafety + WAL + busy_timeout (below) keep that safe.
+        self._db = sqlite3.connect(self.db_path, check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.execute("PRAGMA busy_timeout=5000")
@@ -202,6 +214,43 @@ class MemoryStore:
         params.append(k)
         rows = self._db.execute(" ".join(sql), params).fetchall()
         return [self.get(r["id"]) for r in rows]
+
+    def list(
+        self,
+        *,
+        project: str | None = None,
+        type: MemoryType | None = None,
+    ) -> list[Memory]:
+        """List memories (newest first), optionally scoped by project/type."""
+        sql = ["SELECT id FROM memories"]
+        clauses: list[str] = []
+        params: list[object] = []
+        if project is not None:
+            clauses.append("project = ?")
+            params.append(project)
+        if type is not None:
+            clauses.append("type = ?")
+            params.append(type)
+        if clauses:
+            sql.append("WHERE " + " AND ".join(clauses))
+        sql.append("ORDER BY updated_at DESC, id DESC")
+        rows = self._db.execute(" ".join(sql), params).fetchall()
+        return [self.get(r["id"]) for r in rows]
+
+    def stats(self) -> StoreStats:
+        """Aggregate counts from the index (itself rebuildable from markdown)."""
+        total = self._db.execute("SELECT COUNT(*) AS c FROM memories").fetchone()["c"]
+        by_type = {
+            r["type"]: r["c"]
+            for r in self._db.execute("SELECT type, COUNT(*) AS c FROM memories GROUP BY type")
+        }
+        by_project = {
+            r["project"]: r["c"]
+            for r in self._db.execute(
+                "SELECT project, COUNT(*) AS c FROM memories GROUP BY project"
+            )
+        }
+        return StoreStats(total=total, by_type=by_type, by_project=by_project)
 
     def get(self, memory_id: str) -> Memory:
         """Read a memory back from its markdown file (the source of truth)."""

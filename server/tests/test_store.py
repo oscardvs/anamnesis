@@ -5,6 +5,7 @@ index derived from them. These tests pin the round-trip, search, and reindex
 behavior the MCP server and importer will build on.
 """
 
+import threading
 from pathlib import Path
 
 from anamnesis.store import MemoryStore
@@ -84,6 +85,65 @@ def test_search_tolerates_fts_special_characters(tmp_path):
     assert mem.id in [m.id for m in store.search("16:9")]
     # A query with no word characters yields no results rather than erroring.
     assert store.search("-") == []
+
+
+def test_list_returns_all_memories_sorted_by_recency(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    a = store.write(type="semantic", title="alpha note", body="x", project="p", machine_id="d")
+    b = store.write(type="procedural", title="beta note", body="y", project="p", machine_id="d")
+
+    got = store.list()
+    assert {m.id for m in got} == {a.id, b.id}
+    times = [m.updated_at for m in got]
+    assert times == sorted(times, reverse=True)  # newest-first ordering
+
+
+def test_list_is_scoped_by_project_and_type(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    keep = store.write(type="procedural", title="keep", body="x", project="alpha", machine_id="d")
+    store.write(type="procedural", title="other project", body="x", project="beta", machine_id="d")
+    store.write(type="semantic", title="other type", body="x", project="alpha", machine_id="d")
+
+    ids = [m.id for m in store.list(project="alpha", type="procedural")]
+    assert ids == [keep.id]
+
+
+def test_stats_counts_total_by_type_and_by_project(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    store.write(type="procedural", title="a", body="x", project="p", machine_id="d")
+    store.write(type="procedural", title="b", body="x", project="p", machine_id="d")
+    store.write(type="semantic", title="c", body="x", project="q", machine_id="d")
+
+    s = store.stats()
+    assert s.total == 3
+    assert s.by_type == {"procedural": 2, "semantic": 1}
+    assert s.by_project == {"p": 2, "q": 1}
+
+
+def test_store_is_usable_from_another_thread(tmp_path):
+    # FastMCP runs sync tools in a worker threadpool, so the store's SQLite
+    # connection must be usable from threads other than the one that opened it.
+    store = MemoryStore(root=tmp_path)
+    errors: list[Exception] = []
+    written: list[str] = []
+    found: list[str] = []
+
+    def worker():
+        try:
+            mem = store.write(
+                type="semantic", title="threaded", body="from a worker thread", project="p"
+            )
+            written.append(mem.id)
+            found.extend(m.id for m in store.search("worker"))
+        except Exception as exc:
+            errors.append(exc)
+
+    t = threading.Thread(target=worker)
+    t.start()
+    t.join()
+
+    assert not errors, errors
+    assert written and written[0] in found
 
 
 def test_reindex_rebuilds_index_from_markdown_only(tmp_path):
