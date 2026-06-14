@@ -245,8 +245,11 @@ def default_prompt(label: str, default: str) -> str:
 
 
 def tty_prompt(label: str, default: str) -> str:
-    """Interactive prompt: read a line, falling back to the default on blank input."""
-    raw = input(f"{label} [{default}]: ").strip()
+    """Interactive prompt: read a line, falling back to the default on blank input or EOF."""
+    try:
+        raw = input(f"{label} [{default}]: ").strip()
+    except EOFError:
+        return default
     return raw or default
 
 
@@ -293,7 +296,7 @@ def run_init(
 ) -> int:
     """Configure Claude Code (MCP + hooks), set up the store, and run a first sync."""
     if prompt is None:
-        prompt = default_prompt if opts.yes else tty_prompt
+        prompt = default_prompt if (opts.yes or opts.print_only) else tty_prompt
     home = opts.home or (
         _DEFAULT_HOME if opts.yes else Path(prompt("store home", str(_DEFAULT_HOME))).expanduser()
     )

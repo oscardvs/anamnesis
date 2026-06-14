@@ -1,3 +1,4 @@
+import io
 import json
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from anamnesis.onboard import (
     merge_hooks,
     read_settings,
     run_init,
+    tty_prompt,
     write_settings,
 )
 
@@ -393,3 +395,21 @@ def test_run_init_interactive_threads_prompted_values(tmp_path, monkeypatch):
     # command-form override threaded through to hook commands
     assert any(c.endswith("/custom/anamnesis inject") for c in cmds)
     assert (home / "memory" / ".git").is_dir()  # store created at the prompted home
+
+
+def test_run_init_print_is_noninteractive_without_yes(tmp_path, monkeypatch, capsys):
+    # --print must not block on stdin even without --yes (prompt resolves to defaults).
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "dotclaude"))
+    rc = run_init(
+        InitOptions(home=tmp_path / "store", machine_id="box", local_only=True, print_only=True),
+        runner=lambda argv: (0, ""),
+        which=_which_all_present(tmp_path),
+    )
+    assert rc == 0
+    assert "plan" in capsys.readouterr().out.lower()
+    assert not (tmp_path / "dotclaude" / "settings.json").exists()
+
+
+def test_tty_prompt_returns_default_on_eof(monkeypatch):
+    monkeypatch.setattr("sys.stdin", io.StringIO(""))
+    assert tty_prompt("label", "thedefault") == "thedefault"
