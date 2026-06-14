@@ -17,6 +17,7 @@ from anamnesis.capture import ParsedSession, parse_transcript, resolve_summarize
 from anamnesis.config import resolve_home, resolve_machine_id, resolve_remote
 from anamnesis.inject import render_inject, resolve_project_key, select_inject
 from anamnesis.migrate import apply_migration, plan_migration
+from anamnesis.onboard import InitOptions, run_init
 from anamnesis.store import MemoryStore
 from anamnesis.sync import GitSyncBackend, SyncResult
 
@@ -43,6 +44,23 @@ def build_parser() -> argparse.ArgumentParser:
     pmig.add_argument("--map", dest="map_path", required=True)
     pmig.add_argument("--apply", action="store_true")
     pmig.add_argument("--no-sync", action="store_true")
+    pin = sub.add_parser(
+        "init", help="configure Claude Code (MCP + hooks), set up the store, and first sync"
+    )
+    pin.add_argument("--home", default=None)
+    pin.add_argument("--machine-id", dest="machine_id", default=None)
+    grem = pin.add_mutually_exclusive_group()
+    grem.add_argument("--remote", default=None)
+    grem.add_argument("--local-only", dest="local_only", action="store_true")
+    gcmd = pin.add_mutually_exclusive_group()
+    gcmd.add_argument("--command", dest="override_command", default=None)
+    gcmd.add_argument("--uv-project", dest="uv_project", default=None)
+    pin.add_argument("--name", default="anamnesis")
+    pin.add_argument("--no-mcp", dest="no_mcp", action="store_true")
+    pin.add_argument("--no-hooks", dest="no_hooks", action="store_true")
+    pin.add_argument("--no-sync", dest="no_sync", action="store_true")
+    pin.add_argument("--yes", action="store_true")
+    pin.add_argument("--print", dest="print_plan", action="store_true")
     return p
 
 
@@ -159,6 +177,25 @@ def cmd_migrate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_init(args: argparse.Namespace) -> int:
+    """Configure Claude Code on this machine, then run a first sync."""
+    opts = InitOptions(
+        home=Path(args.home).expanduser() if args.home else None,
+        machine_id=args.machine_id,
+        remote=args.remote,
+        local_only=args.local_only,
+        override_command=args.override_command,
+        override_uv_project=args.uv_project,
+        name=args.name,
+        no_mcp=args.no_mcp,
+        no_hooks=args.no_hooks,
+        no_sync=args.no_sync,
+        yes=args.yes,
+        print_only=args.print_plan,
+    )
+    return run_init(opts)
+
+
 def cmd_serve() -> int:
     """Run the MCP server over stdio. FastMCP is imported lazily (serve-only)."""
     from anamnesis.server import build_server  # local import keeps the hot path MCP-free
@@ -209,6 +246,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_status()
     if command == "migrate":
         return cmd_migrate(args)
+    if command == "init":
+        return cmd_init(args)
     payload = read_hook_payload()
     if command == "inject":
         return cmd_inject(args, payload)

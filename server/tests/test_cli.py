@@ -171,3 +171,36 @@ def test_main_dispatches_migrate_dry_run(tmp_path, monkeypatch, capsys):
     map_file.write_text(json.dumps({"projects": {"old-key": "new-key"}}), encoding="utf-8")
     assert main(["migrate", "--map", str(map_file)]) == 0
     assert "would change" in capsys.readouterr().out
+
+
+def test_build_parser_has_init_options():
+    args = build_parser().parse_args(
+        ["init", "--machine-id", "box", "--local-only", "--yes", "--print", "--no-mcp"]
+    )
+    assert args.command == "init"
+    assert args.machine_id == "box"
+    assert args.local_only is True
+    assert args.yes is True
+    assert args.print_plan is True
+    assert args.no_mcp is True
+
+
+def test_main_dispatches_init_print_writes_nothing(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "dotclaude"))
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    rc = main(
+        [
+            "init",
+            "--home",
+            str(tmp_path / "store"),
+            "--machine-id",
+            "box",
+            "--local-only",
+            "--yes",
+            "--print",
+            "--no-mcp",
+        ]
+    )
+    assert rc == 0
+    assert "plan" in capsys.readouterr().out.lower()
+    assert not (tmp_path / "dotclaude" / "settings.json").exists()
