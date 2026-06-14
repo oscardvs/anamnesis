@@ -144,7 +144,11 @@ def build_mcp_remove_argv(name: str = "anamnesis") -> list[str]:
     return ["claude", "mcp", "remove", "--scope", "user", name]
 
 
-_HOOK_MARKERS = ("anamnesis inject", "anamnesis sync", "anamnesis capture")
+# Markers that identify a hook command this tool installs, independent of the
+# resolved command form: the inline ANAMNESIS_ env prefix (always present, since
+# build_env always sets ANAMNESIS_MACHINE_ID) plus the subcommand invocations
+# (which also match groups written by older versions without an env prefix).
+_HOOK_MARKERS = ("ANAMNESIS_", "anamnesis inject", "anamnesis sync", "anamnesis capture")
 
 
 def _is_anamnesis_group(group: Any) -> bool:
@@ -179,7 +183,10 @@ def merge_hooks(settings: dict[str, Any], new_hooks: HooksMap) -> dict[str, Any]
             else:
                 merged[event] = groups
     for event, groups in new_hooks.items():
-        merged[event] = [*merged.get(event, []), *groups]
+        prev = merged.get(event, [])
+        if not isinstance(prev, list):
+            prev = []
+        merged[event] = [*prev, *groups]
     result["hooks"] = merged
     return result
 

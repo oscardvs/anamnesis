@@ -71,6 +71,7 @@ def test_build_hooks_has_four_commands_with_inline_env():
     inject = starts[0]["hooks"][0]
     sync = starts[1]["hooks"][0]
     assert starts[0]["matcher"] == "startup|resume|clear"
+    assert starts[1]["matcher"] == "startup|resume"
     assert inject["command"].endswith("/bin/anamnesis inject")
     assert inject["timeout"] == 15
     assert inject["command"].startswith("ANAMNESIS_MACHINE_ID=box ")
@@ -147,6 +148,18 @@ def test_merge_drops_stale_anamnesis_group_in_shared_event():
     assert any(c.endswith("anamnesis inject") for c in cmds)
 
 
+def test_merge_idempotent_for_non_anamnesis_command_form():
+    # a --command override whose binary is not named "anamnesis"; idempotency must
+    # still hold because our commands carry the inline ANAMNESIS_ env prefix.
+    hooks = build_hooks(["python", "-m", "anam"], {"ANAMNESIS_MACHINE_ID": "box"})
+    once = merge_hooks({}, hooks)
+    twice = merge_hooks(once, hooks)
+    assert once == twice
+    assert len(twice["hooks"]["SessionStart"]) == 2
+    assert len(twice["hooks"]["SessionEnd"]) == 1
+    assert len(twice["hooks"]["PreCompact"]) == 1
+
+
 def test_build_mcp_add_argv_user_scope_env_and_command():
     argv = build_mcp_add_argv(
         ["/bin/anamnesis"],
@@ -188,6 +201,13 @@ def test_read_settings_missing_or_empty_is_empty(tmp_path):
 def test_read_settings_rejects_non_object(tmp_path):
     p = tmp_path / "arr.json"
     p.write_text("[1, 2]", encoding="utf-8")
+    with pytest.raises(ValueError):
+        read_settings(p)
+
+
+def test_read_settings_rejects_invalid_json(tmp_path):
+    p = tmp_path / "bad.json"
+    p.write_text("{ not json", encoding="utf-8")
     with pytest.raises(ValueError):
         read_settings(p)
 
