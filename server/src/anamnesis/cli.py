@@ -11,10 +11,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from anamnesis.capture import ParsedSession, parse_transcript, resolve_summarizer, write_episodic
 from anamnesis.config import resolve_home, resolve_machine_id, resolve_remote
 from anamnesis.inject import render_inject, resolve_project_key, select_inject
+from anamnesis.migrate import apply_migration, plan_migration
 from anamnesis.store import MemoryStore
 from anamnesis.sync import GitSyncBackend, SyncResult
 
@@ -35,6 +37,12 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--project", default=None)
     pc.add_argument("--source", default="session-end")
     pc.add_argument("--no-sync", action="store_true")
+    pmig = sub.add_parser(
+        "migrate", help="re-key note projects from a JSON map (dry-run unless --apply)"
+    )
+    pmig.add_argument("--map", dest="map_path", required=True)
+    pmig.add_argument("--apply", action="store_true")
+    pmig.add_argument("--no-sync", action="store_true")
     return p
 
 
@@ -112,6 +120,45 @@ def cmd_capture(args: argparse.Namespace, payload: dict[str, object]) -> int:
     return 0
 
 
+def _load_map(path: str) -> tuple[dict[str, str], dict[str, str]]:
+    """Read the migration map JSON: ``{"projects": {...}, "notes": {...}}``."""
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        return {}, {}
+    projects = data.get("projects") or {}
+    notes = data.get("notes") or {}
+    return (
+        {str(k): str(v) for k, v in projects.items()},
+        {str(k): str(v) for k, v in notes.items()},
+    )
+
+
+def cmd_migrate(args: argparse.Namespace) -> int:
+    """Re-key note projects from a JSON map. Dry-run unless --apply."""
+    project_map, note_overrides = _load_map(args.map_path)
+    store = MemoryStore(resolve_home())
+    try:
+        if not args.apply:
+            changes = plan_migration(store.memory_dir, project_map, note_overrides)
+            for c in changes:
+                print(f"migrate: {c.id} [{c.type}] {c.old_project!r} -> {c.new_project!r}")
+            print(f"migrate: {len(changes)} note(s) would change (dry-run; pass --apply to write)")
+            return 0
+        changes = apply_migration(store.memory_dir, project_map, note_overrides)
+        if args.no_sync:
+            store.reindex()
+            print(f"migrate: applied {len(changes)} change(s); reindexed (no sync)")
+        else:
+            result = _run_sync(store, _backend(store))
+            print(
+                f"migrate: applied {len(changes)} change(s); "
+                f"synced (pushed={result.pushed} pulled={result.pulled})"
+            )
+    finally:
+        store.close()
+    return 0
+
+
 def cmd_serve() -> int:
     """Run the MCP server over stdio. FastMCP is imported lazily (serve-only)."""
     from anamnesis.server import build_server  # local import keeps the hot path MCP-free
@@ -160,6 +207,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_sync()
     if command == "status":
         return cmd_status()
+    if command == "migrate":
+        return cmd_migrate(args)
     payload = read_hook_payload()
     if command == "inject":
         return cmd_inject(args, payload)

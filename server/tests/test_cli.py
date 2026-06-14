@@ -5,6 +5,7 @@ from anamnesis.cli import (
     build_parser,
     cmd_capture,
     cmd_inject,
+    cmd_migrate,
     cmd_status,
     main,
     read_hook_payload,
@@ -118,3 +119,55 @@ def test_main_sync_without_remote_commits_locally(tmp_path, monkeypatch, capsys)
     store.close()
     assert main(["sync"]) == 0
     assert "sync:" in capsys.readouterr().out
+
+
+def test_cmd_migrate_dry_run_lists_changes_without_writing(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    store = MemoryStore(root=tmp_path / "store")
+    store.write(type="semantic", title="t", body="b", project="old-key", machine_id="m")
+    store.close()
+    map_file = tmp_path / "map.json"
+    map_file.write_text(
+        json.dumps({"projects": {"old-key": "new-key"}, "notes": {}}), encoding="utf-8"
+    )
+
+    args = build_parser().parse_args(["migrate", "--map", str(map_file)])
+    assert cmd_migrate(args) == 0
+    assert "1 note(s) would change" in capsys.readouterr().out
+
+    store = MemoryStore(root=tmp_path / "store")
+    assert store.list(project="old-key") and not store.list(project="new-key")  # nothing written
+    store.close()
+
+
+def test_cmd_migrate_apply_rewrites_and_reindexes(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    store = MemoryStore(root=tmp_path / "store")
+    store.write(type="semantic", title="t", body="b", project="old-key", machine_id="m")
+    store.close()
+    map_file = tmp_path / "map.json"
+    map_file.write_text(
+        json.dumps({"projects": {"old-key": "new-key"}, "notes": {}}), encoding="utf-8"
+    )
+
+    args = build_parser().parse_args(["migrate", "--map", str(map_file), "--apply", "--no-sync"])
+    assert cmd_migrate(args) == 0
+    assert "applied 1 change(s)" in capsys.readouterr().out
+
+    store = MemoryStore(root=tmp_path / "store")
+    assert not store.list(project="old-key")
+    moved = store.list(project="new-key")
+    store.close()
+    assert len(moved) == 1 and moved[0].title == "t"
+
+
+def test_main_dispatches_migrate_dry_run(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    store = MemoryStore(root=tmp_path / "store")
+    store.write(type="semantic", title="t", body="b", project="old-key", machine_id="m")
+    store.close()
+    map_file = tmp_path / "map.json"
+    map_file.write_text(json.dumps({"projects": {"old-key": "new-key"}}), encoding="utf-8")
+    assert main(["migrate", "--map", str(map_file)]) == 0
+    assert "would change" in capsys.readouterr().out
