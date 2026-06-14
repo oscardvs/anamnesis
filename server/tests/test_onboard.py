@@ -1,12 +1,18 @@
+import json
 from pathlib import Path
+
+import pytest
 
 from anamnesis.onboard import (
     build_env,
     build_hooks,
     build_mcp_add_argv,
     build_mcp_remove_argv,
+    claude_dir,
     detect_command,
     merge_hooks,
+    read_settings,
+    write_settings,
 )
 
 
@@ -164,3 +170,37 @@ def test_build_mcp_remove_argv():
         "user",
         "anamnesis",
     ]
+
+
+def test_claude_dir_respects_env(monkeypatch, tmp_path):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cc"))
+    assert claude_dir() == tmp_path / "cc"
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    assert claude_dir() == Path.home() / ".claude"
+
+
+def test_read_settings_missing_or_empty_is_empty(tmp_path):
+    assert read_settings(tmp_path / "nope.json") == {}
+    (tmp_path / "empty.json").write_text("", encoding="utf-8")
+    assert read_settings(tmp_path / "empty.json") == {}
+
+
+def test_read_settings_rejects_non_object(tmp_path):
+    p = tmp_path / "arr.json"
+    p.write_text("[1, 2]", encoding="utf-8")
+    with pytest.raises(ValueError):
+        read_settings(p)
+
+
+def test_write_settings_backs_up_and_writes_atomically(tmp_path):
+    p = tmp_path / "settings.json"
+    p.write_text(json.dumps({"old": True}), encoding="utf-8")
+    write_settings(p, {"new": True})
+    assert json.loads(p.read_text()) == {"new": True}
+    assert json.loads((tmp_path / "settings.json.bak").read_text()) == {"old": True}
+
+
+def test_write_settings_creates_parent(tmp_path):
+    p = tmp_path / "cc" / "settings.json"
+    write_settings(p, {"k": 1})
+    assert json.loads(p.read_text()) == {"k": 1}

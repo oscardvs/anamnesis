@@ -8,8 +8,11 @@ machine. See docs/superpowers/specs/2026-06-14-init-onboarding-design.md.
 
 from __future__ import annotations
 
+import json
+import os
 import shlex
 import shutil
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -179,3 +182,39 @@ def merge_hooks(settings: dict[str, Any], new_hooks: HooksMap) -> dict[str, Any]
         merged[event] = [*merged.get(event, []), *groups]
     result["hooks"] = merged
     return result
+
+
+def claude_dir() -> Path:
+    """Claude Code's config dir (``CLAUDE_CONFIG_DIR`` or ``~/.claude``)."""
+    raw = os.environ.get("CLAUDE_CONFIG_DIR")
+    return Path(raw).expanduser() if raw else Path.home() / ".claude"
+
+
+def read_settings(path: Path) -> dict[str, Any]:
+    """Parse a settings JSON object, or ``{}`` if missing/empty. Raises on a non-object."""
+    if not path.exists():
+        return {}
+    raw = path.read_text(encoding="utf-8")
+    if not raw.strip():
+        return {}
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} is not a JSON object")
+    return data
+
+
+def write_settings(path: Path, data: dict[str, Any]) -> None:
+    """Write settings atomically, backing up an existing file to ``<name>.bak`` once."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        shutil.copy2(path, path.with_name(path.name + ".bak"))
+    text = json.dumps(data, indent=2) + "\n"
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".tmp-anamnesis-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
