@@ -137,11 +137,16 @@ def build_hooks(base: list[str], env: dict[str, str]) -> HooksMap:
 
 
 def build_mcp_add_argv(base: list[str], env: dict[str, str], name: str = "anamnesis") -> list[str]:
-    """``claude mcp add`` argv registering the stdio server at user scope with env."""
-    argv = ["claude", "mcp", "add", "--scope", "user", "--transport", "stdio"]
+    """``claude mcp add`` argv registering the stdio server at user scope with env.
+
+    The name comes BEFORE the ``-e`` flags: claude's ``-e/--env`` is variadic, so
+    placing the name after it makes the parser consume the name as an env value.
+    The command follows a ``--`` separator. See ``claude mcp add --help``.
+    """
+    argv = ["claude", "mcp", "add", "--scope", "user", "--transport", "stdio", name]
     for k, v in env.items():
-        argv += ["--env", f"{k}={v}"]
-    argv += [name, "--", *base, "serve"]
+        argv += ["-e", f"{k}={v}"]
+    argv += ["--", *base, "serve"]
     return argv
 
 

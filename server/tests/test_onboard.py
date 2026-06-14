@@ -170,11 +170,23 @@ def test_build_mcp_add_argv_user_scope_env_and_command():
         {"ANAMNESIS_MACHINE_ID": "box", "ANAMNESIS_GIT_REMOTE": "me@h:m.git"},
         "anamnesis",
     )
-    assert argv[:7] == ["claude", "mcp", "add", "--scope", "user", "--transport", "stdio"]
-    assert "--env" in argv and "ANAMNESIS_MACHINE_ID=box" in argv
+    # the name MUST precede the -e flags: claude's -e/--env is variadic and would
+    # otherwise consume the server name as an env value.
+    assert argv[:8] == [
+        "claude",
+        "mcp",
+        "add",
+        "--scope",
+        "user",
+        "--transport",
+        "stdio",
+        "anamnesis",
+    ]
+    assert "-e" in argv
+    assert "ANAMNESIS_MACHINE_ID=box" in argv
     assert "ANAMNESIS_GIT_REMOTE=me@h:m.git" in argv
     sep = argv.index("--")
-    assert argv[sep - 1] == "anamnesis"  # the server name precedes the separator
+    assert argv.index("anamnesis") < argv.index("-e") < sep  # name, then env flags, then --
     assert argv[sep + 1 :] == ["/bin/anamnesis", "serve"]
 
 
