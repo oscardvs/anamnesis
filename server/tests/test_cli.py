@@ -1,7 +1,13 @@
 import io
 import json
 
-from anamnesis.cli import build_parser, cmd_inject, read_hook_payload, resolve_command
+from anamnesis.cli import (
+    build_parser,
+    cmd_capture,
+    cmd_inject,
+    read_hook_payload,
+    resolve_command,
+)
 from anamnesis.store import MemoryStore
 
 
@@ -38,10 +44,12 @@ def test_build_parser_has_inject_and_capture_options():
 def test_cmd_inject_prints_project_and_global_notes(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
     store = MemoryStore(root=tmp_path / "store")
-    store.write(type="semantic", title="global-pref", body="no em dashes",
-                project="global", machine_id="m")
-    store.write(type="procedural", title="proj-note", body="do the thing",
-                project="p", machine_id="m")
+    store.write(
+        type="semantic", title="global-pref", body="no em dashes", project="global", machine_id="m"
+    )
+    store.write(
+        type="procedural", title="proj-note", body="do the thing", project="p", machine_id="m"
+    )
     store.close()
 
     args = build_parser().parse_args(["inject", "--project", "p", "--k", "8"])
@@ -50,3 +58,34 @@ def test_cmd_inject_prints_project_and_global_notes(tmp_path, monkeypatch, capsy
     assert rc == 0
     assert "global-pref" in out
     assert "proj-note" in out
+
+
+def test_cmd_capture_writes_episodic_note_no_sync(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    transcript = tmp_path / "t.jsonl"
+    ev = {"type": "user", "cwd": str(tmp_path), "message": {"content": "Build the hooks"}}
+    transcript.write_text(json.dumps(ev) + "\n", encoding="utf-8")
+
+    args = build_parser().parse_args(
+        [
+            "capture",
+            "--transcript",
+            str(transcript),
+            "--project",
+            "p",
+            "--source",
+            "session-end",
+            "--no-sync",
+        ]
+    )
+    rc = cmd_capture(args, {})
+    assert rc == 0
+    assert "wrote episodic note" in capsys.readouterr().out
+
+    store = MemoryStore(root=tmp_path / "store")
+    notes = store.list(project="p", type="episodic")
+    store.close()
+    assert len(notes) == 1
+    assert notes[0].title == "Build the hooks"
+    assert "session-end" in notes[0].tags

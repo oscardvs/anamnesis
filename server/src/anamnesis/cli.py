@@ -12,9 +12,11 @@ import argparse
 import json
 import sys
 
-from anamnesis.config import resolve_home
+from anamnesis.capture import ParsedSession, parse_transcript, resolve_summarizer, write_episodic
+from anamnesis.config import resolve_home, resolve_machine_id, resolve_remote
 from anamnesis.inject import render_inject, resolve_project_key, select_inject
 from anamnesis.store import MemoryStore
+from anamnesis.sync import GitSyncBackend, SyncResult
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -59,6 +61,19 @@ def read_hook_payload() -> dict[str, object]:
     return data if isinstance(data, dict) else {}
 
 
+def _backend(store: MemoryStore) -> GitSyncBackend:
+    return GitSyncBackend(
+        store.memory_dir, remote=resolve_remote(), machine_id=resolve_machine_id()
+    )
+
+
+def _run_sync(store: MemoryStore, backend: GitSyncBackend) -> SyncResult:
+    """One sync cycle: commit/pull --rebase/push, then rebuild the derived index."""
+    result = backend.sync()
+    store.reindex()
+    return result
+
+
 def cmd_inject(args: argparse.Namespace, payload: dict[str, object]) -> int:
     """SessionStart: print top notes for the session's project to stdout."""
     store = MemoryStore(resolve_home())
@@ -67,6 +82,31 @@ def cmd_inject(args: argparse.Namespace, payload: dict[str, object]) -> int:
         text = render_inject(select_inject(store, project=project, k=args.k))
         if text:
             sys.stdout.write(text)
+    finally:
+        store.close()
+    return 0
+
+
+def cmd_capture(args: argparse.Namespace, payload: dict[str, object]) -> int:
+    """SessionEnd / PreCompact: write an episodic note, then sync unless --no-sync."""
+    transcript = args.transcript or payload.get("transcript_path")
+    store = MemoryStore(resolve_home())
+    try:
+        session = parse_transcript(str(transcript)) if transcript else ParsedSession()
+        cwd = session.cwd or str(payload.get("cwd") or ".")
+        project = args.project or resolve_project_key(cwd)
+        mem = write_episodic(
+            store,
+            session,
+            summarizer=resolve_summarizer(),
+            project=project,
+            source=args.source,
+            machine_id=resolve_machine_id(),
+        )
+        print(f"capture: wrote episodic note {mem.id} (project={project}, source={args.source})")
+        if not args.no_sync:
+            result = _run_sync(store, _backend(store))
+            print(f"capture: synced (pushed={result.pushed} pulled={result.pulled})")
     finally:
         store.close()
     return 0
