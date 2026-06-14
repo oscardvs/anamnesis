@@ -1,0 +1,48 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --project /ABSOLUTE/PATH/TO/anamnesis/server anamnesis inject",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --project /ABSOLUTE/PATH/TO/anamnesis/server anamnesis sync",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --project /ABSOLUTE/PATH/TO/anamnesis/server anamnesis capture",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --project /ABSOLUTE/PATH/TO/anamnesis/server anamnesis capture --source precompact --no-sync",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}

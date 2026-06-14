@@ -50,7 +50,7 @@ agent's memory across the machines you already own.** That gap is Anamnesis.
   are added only when keyword search demonstrably falls short.
 - **Robust sync.** Markdown is synced via git over your private [Tailscale](https://tailscale.com) mesh and
   the index is rebuilt locally - so the database file is never synced and never corrupts.
-- **Claude-Code-native.** Ships as an MCP server with read-only auto-query tools; session hooks (coming)
+- **Claude-Code-native.** Ships as an MCP server with read-only auto-query tools, plus session hooks that
   surface relevant memory at the start of a session and capture durable notes at the end.
 - **A git-like memory GUI.** A dashboard to browse, search, edit, and see the history of your memory across
   every machine.
@@ -86,13 +86,34 @@ export ANAMNESIS_GIT_REMOTE='you@host.your-tailnet.ts.net:anamnesis-memory.git' 
 note written on one machine is searchable on the others within a sync cycle. Only markdown is synced;
 the database file is never synced, so it never corrupts.
 
+## Hands-off capture and sync (hooks)
+
+Claude Code hooks make memory automatic, so the cross-machine round-trip needs zero manual steps:
+
+- **SessionStart** injects the most relevant notes for the current project (your global preferences, plus
+  the project's durable notes and a couple of recent session summaries) and kicks off a background sync.
+- **SessionEnd** captures a durable episodic note from the session transcript (the ask, the files touched,
+  the outcome) and syncs it, so it is on your other machines by the next session.
+- **PreCompact** captures the same kind of note before the context is compacted, so nothing is lost.
+
+Copy [`examples/hooks.settings.json`](./examples/hooks.settings.json) into your per-machine
+`~/.claude/settings.json` (the Claude Code `update-config` skill can merge it for you), and replace
+`/ABSOLUTE/PATH/TO/anamnesis/server` with this machine's checkout path. `settings.json` is per-machine and
+is not synced, so each machine points at its own checkout. The thin `anamnesis` CLI the hooks call
+(`inject` / `capture` / `sync` / `status`, alongside `serve`) reads the same `ANAMNESIS_*` configuration
+as the server.
+
+The session-end summary is deterministic by default and needs no API key; the summarization model is a
+swappable config value (`ANAMNESIS_REFLECTION_PROVIDER`) for when a reflection model is plugged in later.
+
 ## Status
 
 **Phase 0 works - the local-first core.** The file-first store, the FastMCP server
 (`memory_search` / `list` / `status` / `write` / `sync`), and git-over-Tailscale sync are built,
 tested, and validated on real hardware: a note written on the desktop is searchable on the laptop,
-and a full personal corpus round-trips across machines. **Next:** session hooks for automatic capture
-and sync, a one-command installer, and the git-like dashboard.
+and a full personal corpus round-trips across machines. Auto-capture and auto-sync **session hooks**
+(SessionStart inject plus background sync, SessionEnd and PreCompact capture) are built and tested.
+**Next:** a one-command installer and the git-like dashboard.
 
 > Pre-alpha: APIs and setup may still change. Watch/star to follow along.
 
