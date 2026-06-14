@@ -41,9 +41,9 @@ dev = [
 Homepage = "https://github.com/oscardvs/anamnesis"
 Repository = "https://github.com/oscardvs/anamnesis"
 
-# Console entry point - uncomment when server/src/anamnesis/server.py exists.
-# [project.scripts]
-# anamnesis = "anamnesis.server:main"
+# Console entry point: launches the FastMCP server over stdio for Claude Code.
+[project.scripts]
+anamnesis = "anamnesis.server:main"
 
 [build-system]
 requires = ["hatchling"]

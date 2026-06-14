@@ -1,30 +1,56 @@
 # anamnesis (server)
 
-The Anamnesis **MCP memory server** for Claude Code. Python + [FastMCP](https://github.com/jlowin/fastmcp).
+The Anamnesis **MCP memory server** for Claude Code. Python + [FastMCP](https://gofastmcp.com).
 
-> 🚧 Scaffold only - the server module is the first thing we build. See the (local-only)
-> `docs/architecture.md` and `docs/roadmap.md` for the design and Phase-0 plan.
+Markdown files are the source of truth; a local SQLite (WAL + FTS5) index is derived from them
+and can always be rebuilt. See the (local-only) `docs/architecture.md` and `docs/roadmap.md` for
+the design and Phase-0 plan.
 
-## Planned MCP tools
+## MCP tools
 
-| Tool             | Purpose                                                        |
-| ---------------- | -------------------------------------------------------------- |
-| `memory_search`  | Keyword/BM25 search over memory (FTS5), scoped by project.     |
-| `memory_write`   | Write a durable memory note (markdown + indexed metadata).     |
-| `memory_list`    | List memories for a project.                                   |
-| `memory_sync`    | Pull/push the markdown store over git (Tailscale).             |
-| `memory_status`  | Sync status, machine list, last-sync timestamps.               |
+| Tool             | Signature                                          | Approval            |
+| ---------------- | -------------------------------------------------- | ------------------- |
+| `memory_search`  | `(query, project?, type?, k=8)` -> ranked notes    | read-only           |
+| `memory_list`    | `(project?, type?)` -> titles + metadata           | read-only           |
+| `memory_status`  | `()` -> counts, store paths, sync state            | read-only           |
+| `memory_write`   | `(type, title, body, project="global", tags?)`     | write - confirm     |
+| `memory_sync`    | `(force=False)` -> stub until the sync layer lands | write - confirm     |
 
-Read-only query tools (`memory_search`, `memory_list`, `memory_status`) are designed to be safe to
-auto-approve so memory "just works" at session start.
+Read-only query tools carry the `readOnlyHint` annotation so a client can auto-approve them; the
+write tool is flagged for confirmation. `type` is one of `procedural` / `semantic` / `episodic`.
+
+## Run it
+
+The server reads its store root from `ANAMNESIS_HOME` (default `~/.anamnesis`) and the
+machine-of-origin for writes from `ANAMNESIS_MACHINE_ID` (default the hostname).
+
+```bash
+# from server/
+uv venv --python 3.12
+uv pip install -e ".[mcp,dev]"
+anamnesis            # serves over stdio (Ctrl-C to stop)
+```
+
+### Register with Claude Code
+
+The repo ships a project-scoped `.mcp.json` that launches the server:
+
+```json
+{
+  "mcpServers": {
+    "anamnesis": { "command": "uv", "args": ["run", "--project", "server", "anamnesis"] }
+  }
+}
+```
+
+To override `ANAMNESIS_HOME` / `ANAMNESIS_MACHINE_ID`, set them in that server's `"env"` block.
+Claude Code launches MCP servers with a filtered environment, so shell exports are **not**
+inherited - the `"env"` block is the place to set them.
 
 ## Development
 
 ```bash
 # from server/
-uv venv --python 3.12
-uv pip install -e ".[dev]"
-
 uv run ruff check src tests && uv run ruff format --check src tests
 uv run mypy src
 uv run pytest
@@ -40,6 +66,6 @@ Memory lives in `~/.anamnesis/` (never in this repo):
 ```
 ~/.anamnesis/
 ├── memory/            # markdown notes - the source of truth (a git repo)
-│   └── <project>/...
+│   └── <type>/<id>.md
 └── index.db           # SQLite FTS5 index - rebuilt locally, never synced
 ```
