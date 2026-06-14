@@ -89,6 +89,29 @@ def test_conflicting_edit_is_surfaced_not_silently_dropped(tmp_path):
     assert "laptop edit" in path_b.read_text()  # local edit preserved, not silently dropped
 
 
+def test_durability_over_many_sync_cycles(tmp_path):
+    # Advance-threshold: memory round-trips across >=20 consecutive sync cycles
+    # with the index rebuilt each time and no corruption / divergence.
+    remote = _bare_remote(tmp_path / "remote.git")
+    store_a = MemoryStore(root=tmp_path / "A")
+    backend_a = _backend(store_a, remote, "desktop")
+    store_b = MemoryStore(root=tmp_path / "B")
+    backend_b = _backend(store_b, remote, "laptop")
+
+    cycles = 24
+    for i in range(cycles):
+        store_a.write(type="semantic", title=f"note-{i}", body=f"durable body {i}", project="p")
+        backend_a.sync()  # push
+        backend_b.sync()  # pull
+        store_b.reindex()
+        assert store_b.search(f"note-{i}"), f"cycle {i}: newest note not visible on B"
+
+    store_b.reindex()
+    assert store_b.stats().total == cycles  # every note converged onto B
+    assert store_a.stats().total == cycles  # A's own index intact
+    assert store_b.get(store_a.list()[-1].id).body == "durable body 0"  # files uncorrupted
+
+
 def test_state_reports_remote_and_head(tmp_path):
     remote = _bare_remote(tmp_path / "remote.git")
     store_a = MemoryStore(root=tmp_path / "A")
