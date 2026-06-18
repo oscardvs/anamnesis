@@ -87,17 +87,37 @@ environment, so shell exports are not inherited). Full server docs: [`server/REA
 
 ## Cross-machine sync
 
-Memory is a git repo (`~/.anamnesis/memory/`) synced over your [Tailscale](https://tailscale.com) mesh.
-Host one shared **bare** repo on an always-on node and point each machine at it:
+Memory is a git repo (`~/.anamnesis/memory/`) that syncs over your private
+[Tailscale](https://tailscale.com) mesh. Markdown is the only thing synced; the SQLite index is rebuilt
+locally on every machine, so the database file never travels and never corrupts.
 
-```bash
-git init --bare -b main ~/anamnesis-memory.git                                  # once, on the host node
-export ANAMNESIS_GIT_REMOTE='you@host.your-tailnet.ts.net:anamnesis-memory.git' # on each machine
-```
+Set it up once:
 
-`memory_sync` runs `commit -> pull --rebase -> push` and rebuilds the local index after pulling, so a
-note written on one machine is searchable on the others within a sync cycle. Only markdown is synced;
-the database file is never synced, so it never corrupts.
+1. **Put every machine on the same tailnet.** Install [Tailscale](https://tailscale.com/download) on each
+   machine and sign in to the same account (`tailscale up`). Pick one always-on machine (a desktop, a home
+   server, a NAS) to host the shared repo and note its MagicDNS name, which `tailscale status` prints (for
+   example `host.your-tailnet.ts.net`).
+
+2. **Create one shared bare repo on the host node:**
+   ```bash
+   git init --bare -b main ~/anamnesis-memory.git
+   ```
+   Confirm you can reach it over SSH from your other machines (`ssh you@host.your-tailnet.ts.net` should log
+   in; add your public key to the host's `~/.ssh/authorized_keys` if it does not).
+
+3. **Point each machine at it** when you run the installer:
+   ```bash
+   uv run anamnesis init --remote 'you@host.your-tailnet.ts.net:anamnesis-memory.git'
+   ```
+   The host node itself can use a local path instead: `--remote "$HOME/anamnesis-memory.git"`.
+
+`memory_sync` (and the background SessionStart sync hook) runs `commit -> pull --rebase -> push` and
+rebuilds the local index after pulling, so a note written on one machine is searchable on the others within
+a sync cycle. Diverging edits to the same note surface as a git conflict for you to resolve rather than
+being silently dropped. Only markdown is synced; the database file is never synced, so it never corrupts.
+
+Working on a single machine for now? Run `anamnesis init --local-only` and add a remote later by re-running
+`init`; nothing else changes.
 
 ## Hands-off capture and sync (hooks)
 
@@ -126,8 +146,9 @@ swappable config value (`ANAMNESIS_REFLECTION_PROVIDER`) for when a reflection m
 (`memory_search` / `list` / `status` / `write` / `sync`), and git-over-Tailscale sync are built,
 tested, and validated on real hardware: a note written on the desktop is searchable on the laptop,
 and a full personal corpus round-trips across machines. Auto-capture and auto-sync **session hooks**
-(SessionStart inject plus background sync, SessionEnd and PreCompact capture) are built and tested.
-**Next:** a one-command installer and the git-like dashboard.
+(SessionStart inject plus background sync, SessionEnd and PreCompact capture) are built and tested, and a
+one-command installer (`anamnesis init`) wires up the MCP server, hooks, store, and first sync.
+**Next:** publishing to PyPI for a one-line install and the git-like dashboard.
 
 > Pre-alpha: APIs and setup may still change. Watch/star to follow along.
 

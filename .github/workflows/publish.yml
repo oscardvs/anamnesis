@@ -1,0 +1,43 @@
+name: Publish to PyPI
+
+# Publishes the `anamnesis` package when a GitHub Release is published.
+# Uses PyPI Trusted Publishing (OIDC), so there are no API tokens to manage.
+#
+# One-time setup on pypi.org (Project -> Settings -> Publishing -> Add a
+# trusted publisher) so the upload is accepted:
+#   Owner:            oscardvs
+#   Repository:       anamnesis
+#   Workflow name:    publish.yml
+#   Environment name: pypi
+# And create a GitHub environment named "pypi" (Settings -> Environments).
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build-and-publish:
+    name: build and publish
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/anamnesis
+    permissions:
+      id-token: write # required for Trusted Publishing
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # uv build (run in ./server) writes artifacts to server/dist.
+          packages-dir: server/dist
