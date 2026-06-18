@@ -1,29 +1,48 @@
 name: Publish to PyPI
 
-# Publishes the `anamnesis` package when a GitHub Release is published.
-# Uses PyPI Trusted Publishing (OIDC), so there are no API tokens to manage.
+# Publishes the `anamnesis-memory` package (the import package and CLI command
+# are still `anamnesis`). Two ways to run:
 #
-# One-time setup so the upload is accepted. The project does not exist on
-# PyPI yet, so register a *pending* publisher at the account level
-# (pypi.org -> account menu -> Publishing -> Add a new pending publisher):
+#   - Publish a GitHub Release -> uploads to production PyPI.
+#   - Run manually (Actions tab -> "Publish to PyPI" -> Run workflow) and pick
+#     a target: "testpypi" (default, a safe dry run) or "pypi".
+#
+# Uses Trusted Publishing (OIDC), so there are no API tokens to manage. Each
+# index needs its own one-time setup:
+#
+# Production, pypi.org -> account menu -> Publishing -> add pending publisher:
 #   PyPI Project Name: anamnesis-memory
 #   Owner:             oscardvs
 #   Repository name:   anamnesis
 #   Workflow name:     publish.yml
 #   Environment name:  pypi
-# And create a GitHub environment named "pypi" (repo Settings -> Environments).
+#   plus a GitHub environment named "pypi" (repo Settings -> Environments).
+#
+# Dry run, the same steps on test.pypi.org but with:
+#   Environment name:  testpypi
+#   plus a GitHub environment named "testpypi".
 
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Index to publish to"
+        type: choice
+        options:
+          - testpypi
+          - pypi
+        default: testpypi
 
 jobs:
   build-and-publish:
     name: build and publish
     runs-on: ubuntu-latest
+    # A release always goes to production PyPI; a manual run honours the choice.
     environment:
-      name: pypi
-      url: https://pypi.org/p/anamnesis-memory
+      name: ${{ (github.event_name == 'release' || inputs.target == 'pypi') && 'pypi' || 'testpypi' }}
+      url: ${{ (github.event_name == 'release' || inputs.target == 'pypi') && 'https://pypi.org/p/anamnesis-memory' || 'https://test.pypi.org/p/anamnesis-memory' }}
     permissions:
       id-token: write # required for Trusted Publishing
     defaults:
@@ -38,8 +57,16 @@ jobs:
       - name: Build sdist and wheel
         run: uv build
 
-      - name: Publish to PyPI
+      # uv build (run in ./server) writes artifacts to server/dist.
+      - name: Publish to TestPyPI (dry run)
+        if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          # uv build (run in ./server) writes artifacts to server/dist.
+          packages-dir: server/dist
+          repository-url: https://test.pypi.org/legacy/
+
+      - name: Publish to PyPI
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.target == 'pypi')
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
           packages-dir: server/dist
