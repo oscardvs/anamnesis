@@ -3,13 +3,15 @@ name: Publish to PyPI
 # Publishes the `anamnesis` package when a GitHub Release is published.
 # Uses PyPI Trusted Publishing (OIDC), so there are no API tokens to manage.
 #
-# One-time setup on pypi.org (Project -> Settings -> Publishing -> Add a
-# trusted publisher) so the upload is accepted:
-#   Owner:            oscardvs
-#   Repository:       anamnesis
-#   Workflow name:    publish.yml
-#   Environment name: pypi
-# And create a GitHub environment named "pypi" (Settings -> Environments).
+# One-time setup so the upload is accepted. The project does not exist on
+# PyPI yet, so register a *pending* publisher at the account level
+# (pypi.org -> account menu -> Publishing -> Add a new pending publisher):
+#   PyPI Project Name: anamnesis-memory
+#   Owner:             oscardvs
+#   Repository name:   anamnesis
+#   Workflow name:     publish.yml
+#   Environment name:  pypi
+# And create a GitHub environment named "pypi" (repo Settings -> Environments).
 
 on:
   release:
@@ -21,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/anamnesis
+      url: https://pypi.org/p/anamnesis-memory
     permissions:
       id-token: write # required for Trusted Publishing
     defaults:
