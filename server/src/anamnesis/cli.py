@@ -29,6 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command")
     sub.add_parser("serve", help="run the MCP server over stdio (default)")
     sub.add_parser("sync", help="run one git sync cycle and reindex")
+    sub.add_parser("reindex", help="rebuild the SQLite index from markdown (no git sync)")
     sub.add_parser("status", help="print store and sync status")
     pi = sub.add_parser("inject", help="print top notes for the project as SessionStart context")
     pi.add_argument("--project", default=None)
@@ -217,6 +218,21 @@ def cmd_sync() -> int:
     return 0
 
 
+def cmd_reindex() -> int:
+    """Rebuild the derived SQLite index from the markdown source of truth.
+
+    The dashboard writes notes as markdown directly, then calls this to refresh
+    the FTS5 index without touching git (sync stays a separate, explicit step).
+    """
+    store = MemoryStore(resolve_home())
+    try:
+        count = store.reindex()
+        print(f"reindex: indexed {count} note(s)")
+    finally:
+        store.close()
+    return 0
+
+
 def cmd_status() -> int:
     store = MemoryStore(resolve_home())
     try:
@@ -242,6 +258,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_serve()
     if command == "sync":
         return cmd_sync()
+    if command == "reindex":
+        return cmd_reindex()
     if command == "status":
         return cmd_status()
     if command == "migrate":

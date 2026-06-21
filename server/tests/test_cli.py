@@ -8,6 +8,7 @@ from anamnesis.cli import (
     cmd_capture,
     cmd_inject,
     cmd_migrate,
+    cmd_reindex,
     cmd_status,
     main,
     read_hook_payload,
@@ -94,6 +95,43 @@ def test_cmd_capture_writes_episodic_note_no_sync(tmp_path, monkeypatch, capsys)
     assert len(notes) == 1
     assert notes[0].title == "Build the hooks"
     assert "session-end" in notes[0].tags
+
+
+def test_resolve_command_parses_reindex():
+    assert resolve_command(["reindex"]) == "reindex"
+
+
+def test_cmd_reindex_rebuilds_index_from_markdown(tmp_path, monkeypatch, capsys):
+    # The dashboard writes markdown directly, then triggers a reindex; this CLI
+    # seam must rebuild the derived index from the markdown source of truth.
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    store = MemoryStore(root=tmp_path / "store")
+    store.write(type="semantic", title="t", body="b", project="p", machine_id="m")
+    store.close()
+
+    # Simulate a fresh/stale index: drop index.db, keep the markdown.
+    for suffix in ("", "-wal", "-shm"):
+        p = tmp_path / "store" / f"index.db{suffix}"
+        if p.exists():
+            p.unlink()
+
+    assert cmd_reindex() == 0
+    out = capsys.readouterr().out
+    assert "reindex" in out and "1" in out
+
+    store = MemoryStore(root=tmp_path / "store")
+    found = store.search("t", project="p")
+    store.close()
+    assert len(found) == 1
+
+
+def test_main_dispatches_reindex(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    store = MemoryStore(root=tmp_path / "store")
+    store.write(type="semantic", title="t", body="b", project="p", machine_id="m")
+    store.close()
+    assert main(["reindex"]) == 0
+    assert "reindex" in capsys.readouterr().out
 
 
 def test_cmd_status_reports_counts(tmp_path, monkeypatch, capsys):
