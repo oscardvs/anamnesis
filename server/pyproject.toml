@@ -2,7 +2,7 @@
 # Distribution name on PyPI ("anamnesis" is taken by an unrelated package).
 # The import package and the CLI command are both still `anamnesis`.
 name = "anamnesis-memory"
-version = "0.0.1"
+version = "0.0.2"
 description = "Cross-machine, file-first memory layer for Claude Code (MCP server)"
 readme = "README.md"
 requires-python = ">=3.11"
