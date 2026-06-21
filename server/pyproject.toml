@@ -21,6 +21,10 @@ dependencies = [
   # deliberately independent of the MCP server layer (no fastmcp dependency here).
   "pyyaml>=6",
   "python-ulid>=2",
+  # python-ulid imports `from typing_extensions import Self` unconditionally, yet only
+  # declares typing_extensions for old Python. Without this, a base-only install (which
+  # is exactly how the hooks invoke `anamnesis`) omits it and crashes on Python >= 3.11.
+  "typing-extensions>=4",
 ]
 
 [project.optional-dependencies]
