@@ -17,6 +17,7 @@ from anamnesis.onboard import (
     run_init,
     tty_prompt,
     write_settings,
+    write_store_config,
 )
 
 
@@ -425,3 +426,48 @@ def test_run_init_print_is_noninteractive_without_yes(tmp_path, monkeypatch, cap
 def test_tty_prompt_returns_default_on_eof(monkeypatch):
     monkeypatch.setattr("sys.stdin", io.StringIO(""))
     assert tty_prompt("label", "thedefault") == "thedefault"
+
+
+def test_write_store_config_local_only_omits_remote(tmp_path):
+    write_store_config(tmp_path / "s", machine_id="box", remote=None)
+    assert json.loads((tmp_path / "s" / "config.json").read_text()) == {"machine_id": "box"}
+
+
+def test_run_init_writes_store_config_with_remote(tmp_path, monkeypatch):
+    # config.json must be written even with --no-mcp/--no-hooks/--no-sync, so the
+    # MCP server (launched without inline env) can resolve the remote and push.
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "dotclaude"))
+    opts = InitOptions(
+        home=tmp_path / "store",
+        machine_id="box",
+        remote="me@host:mem.git",
+        yes=True,
+        no_mcp=True,
+        no_hooks=True,
+        no_sync=True,
+    )
+    rc = run_init(
+        opts,
+        prompt=lambda label, default: default,
+        runner=lambda argv: (0, ""),
+        which=_which_all_present(tmp_path),
+    )
+    assert rc == 0
+    cfg = json.loads((tmp_path / "store" / "config.json").read_text())
+    assert cfg["remote"] == "me@host:mem.git"
+    assert cfg["machine_id"] == "box"
+
+
+def test_run_init_print_writes_no_store_config(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "dotclaude"))
+    opts = InitOptions(
+        home=tmp_path / "store", machine_id="box", local_only=True, yes=True, print_only=True
+    )
+    rc = run_init(
+        opts,
+        prompt=lambda label, default: default,
+        runner=lambda argv: (0, ""),
+        which=_which_all_present(tmp_path),
+    )
+    assert rc == 0
+    assert not (tmp_path / "store" / "config.json").exists()

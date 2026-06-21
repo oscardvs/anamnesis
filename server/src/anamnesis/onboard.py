@@ -238,6 +238,21 @@ def write_settings(path: Path, data: dict[str, Any]) -> None:
         raise
 
 
+def write_store_config(home: Path, *, machine_id: str, remote: str | None) -> None:
+    """Persist machine-local config so any launch of the server/CLI finds the remote.
+
+    Lives at ``<home>/config.json``, outside the synced ``memory/`` repo (the
+    remote URL differs per machine, so this must never sync). ``config.resolve_*``
+    read it as a fallback; env vars still take precedence. This is what lets the
+    MCP server (launched without inline env) push on ``memory_sync``.
+    """
+    home.mkdir(parents=True, exist_ok=True)
+    cfg: dict[str, str] = {"machine_id": machine_id}
+    if remote:
+        cfg["remote"] = remote
+    (home / "config.json").write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+
+
 Prompt = Callable[[str, str], str]
 Runner = Callable[[list[str]], tuple[int, str]]
 
@@ -331,6 +346,7 @@ def run_init(
         print(f"  machine id : {machine_id}")
         print(f"  remote     : {remote or '(local-only)'}")
         print(f"  command    : {' '.join(base)}")
+        print(f"  config     : {home / 'config.json'}")
         if not opts.no_mcp:
             print(f"  mcp add    : {' '.join(build_mcp_add_argv(base, env, opts.name))}")
         if not opts.no_hooks:
@@ -370,6 +386,11 @@ def run_init(
         merged = merge_hooks(existing_settings, build_hooks(base, env))
         write_settings(settings_path, merged)
         print(f"hooks: installed SessionStart/SessionEnd/PreCompact -> {settings_path}")
+
+    # Persist machine-local config (remote + machine id) so any later launch of
+    # the server/CLI finds the remote, even when started without inline env.
+    write_store_config(home, machine_id=machine_id, remote=remote)
+    print(f"config: wrote {home / 'config.json'}")
 
     if not opts.no_sync:
         store = MemoryStore(home)
