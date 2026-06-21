@@ -194,6 +194,9 @@ def test_sync_memory_reindexes_so_pulled_notes_are_searchable(tmp_path):
 
 def test_memory_sync_without_remote_commits_locally(tmp_path, monkeypatch):
     monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    # Isolate the store root so resolve_remote() reads this temp store's config
+    # (none here), not the developer's real ~/.anamnesis/config.json.
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path))
     store = MemoryStore(root=tmp_path)
     write_memory(store, type="semantic", title="note", body="x", project="p")
     server = build_server(store)
