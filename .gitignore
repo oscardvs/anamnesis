@@ -79,3 +79,6 @@ Thumbs.db
 # Local Claude Code session artifacts (keep shared config, ignore local)
 # ---------------------------------------------------------------------------
 .claude/settings.local.json
+
+# Playwright MCP scratch output (screenshots, snapshots)
+.playwright-mcp/

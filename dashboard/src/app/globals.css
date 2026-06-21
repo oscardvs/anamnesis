@@ -1,0 +1,352 @@
+@import "tailwindcss";
+
+/* next-themes drives the theme with a class on <html>. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Console palette. Dark-first, near-monochrome cool-neutral surfaces with a
+ * single warm-gold brand accent; semantic green/red for diffs and status hues
+ * for sync. Colours are OKLCH so the steps stay perceptually even.
+ */
+:root {
+  --bg: oklch(0.985 0.002 264);
+  --surface: oklch(1 0 0);
+  --surface-2: oklch(0.975 0.003 264);
+  --elevated: oklch(1 0 0);
+  --text: oklch(0.21 0.01 264);
+  --muted: oklch(0.45 0.01 264);
+  --faint: oklch(0.62 0.008 264);
+  --line: oklch(0.21 0.02 264 / 0.1);
+  --line-strong: oklch(0.21 0.02 264 / 0.16);
+  --highlight: oklch(0.21 0.02 264 / 0.04);
+
+  --accent: oklch(0.7 0.13 72);
+  --accent-strong: oklch(0.62 0.14 66);
+  --accent-contrast: oklch(0.99 0.01 90);
+  --accent-tint: oklch(0.7 0.13 72 / 0.12);
+
+  --add: oklch(0.55 0.13 150);
+  --add-tint: oklch(0.62 0.14 150 / 0.12);
+  --del: oklch(0.58 0.18 24);
+  --del-tint: oklch(0.62 0.19 24 / 0.12);
+
+  --ok: oklch(0.6 0.13 155);
+  --warn: oklch(0.7 0.13 72);
+  --info: oklch(0.6 0.12 245);
+  --danger: oklch(0.58 0.18 24);
+
+  --type-procedural: oklch(0.62 0.13 160);
+  --type-semantic: oklch(0.62 0.12 245);
+  --type-episodic: oklch(0.62 0.15 300);
+
+  color-scheme: light;
+}
+
+.dark {
+  --bg: oklch(0.17 0.006 264);
+  --surface: oklch(0.205 0.007 264);
+  --surface-2: oklch(0.235 0.008 264);
+  --elevated: oklch(0.255 0.009 264);
+  --text: oklch(0.965 0.003 264);
+  --muted: oklch(0.72 0.007 264);
+  --faint: oklch(0.55 0.007 264);
+  --line: oklch(1 0 0 / 0.08);
+  --line-strong: oklch(1 0 0 / 0.14);
+  --highlight: oklch(1 0 0 / 0.05);
+
+  --accent: oklch(0.81 0.12 78);
+  --accent-strong: oklch(0.86 0.13 82);
+  --accent-contrast: oklch(0.22 0.03 70);
+  --accent-tint: oklch(0.81 0.12 78 / 0.14);
+
+  --add: oklch(0.74 0.15 152);
+  --add-tint: oklch(0.74 0.15 152 / 0.13);
+  --del: oklch(0.7 0.17 22);
+  --del-tint: oklch(0.7 0.17 22 / 0.14);
+
+  --ok: oklch(0.76 0.14 158);
+  --warn: oklch(0.81 0.12 78);
+  --info: oklch(0.72 0.12 240);
+  --danger: oklch(0.7 0.17 22);
+
+  --type-procedural: oklch(0.76 0.13 162);
+  --type-semantic: oklch(0.74 0.12 238);
+  --type-episodic: oklch(0.74 0.14 298);
+
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-elevated: var(--elevated);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-highlight: var(--highlight);
+
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-contrast: var(--accent-contrast);
+  --color-accent-tint: var(--accent-tint);
+
+  --color-add: var(--add);
+  --color-add-tint: var(--add-tint);
+  --color-del: var(--del);
+  --color-del-tint: var(--del-tint);
+
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-info: var(--info);
+  --color-danger: var(--danger);
+
+  --color-type-procedural: var(--type-procedural);
+  --color-type-semantic: var(--type-semantic);
+  --color-type-episodic: var(--type-episodic);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  --ease-fluid: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@layer base {
+  * {
+    border-color: var(--line);
+  }
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "cv01", "cv03", "ss01";
+  }
+  ::selection {
+    background: var(--accent-tint);
+  }
+  /* Refined, thin scrollbars that match the surface. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--line-strong);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: var(--faint);
+    background-clip: content-box;
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}
+
+@layer utilities {
+  /* A hairline that reads as machined edge: top inner highlight + outer line. */
+  .bezel {
+    border: 1px solid var(--line);
+    box-shadow: inset 0 1px 0 0 oklch(1 0 0 / 0.04);
+  }
+  .dark .bezel {
+    box-shadow: inset 0 1px 0 0 oklch(1 0 0 / 0.06);
+  }
+  /* Faint film grain, fixed and non-interactive (performance-safe). */
+  .grain::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    opacity: 0.025;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .text-balance {
+    text-wrap: balance;
+  }
+  /* cmdk command palette */
+  .cmd-item {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    border-radius: 0.625rem;
+    padding: 0.5rem 0.625rem;
+    font-size: 0.8125rem;
+    color: var(--muted);
+    cursor: pointer;
+    transition:
+      background-color 0.12s ease,
+      color 0.12s ease;
+  }
+  .cmd-item[data-selected="true"] {
+    background: var(--highlight);
+    color: var(--text);
+  }
+  [cmdk-group-heading] {
+    padding: 0.5rem 0.625rem 0.375rem;
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--faint);
+  }
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translate(0, 8px);
+    }
+    to {
+      opacity: 1;
+      transform: translate(0, 0);
+    }
+  }
+  .animate-rise {
+    animation: rise 0.5s var(--ease-out-soft) both;
+  }
+}
+
+/* Rendered note body. Tuned to the Console palette; no typography plugin. */
+.anamnesis-prose {
+  font-size: 0.9375rem;
+  line-height: 1.7;
+  color: var(--text);
+}
+.anamnesis-prose > :first-child {
+  margin-top: 0;
+}
+.anamnesis-prose > :last-child {
+  margin-bottom: 0;
+}
+.anamnesis-prose h1,
+.anamnesis-prose h2,
+.anamnesis-prose h3,
+.anamnesis-prose h4 {
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.011em;
+  margin: 1.6em 0 0.6em;
+}
+.anamnesis-prose h1 {
+  font-size: 1.4rem;
+}
+.anamnesis-prose h2 {
+  font-size: 1.18rem;
+}
+.anamnesis-prose h3 {
+  font-size: 1.04rem;
+}
+.anamnesis-prose h4 {
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+.anamnesis-prose p {
+  margin: 0.75em 0;
+}
+.anamnesis-prose a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: var(--accent-tint);
+  text-underline-offset: 3px;
+}
+.anamnesis-prose a:hover {
+  text-decoration-color: var(--accent);
+}
+.anamnesis-prose strong {
+  color: var(--text);
+  font-weight: 650;
+}
+.anamnesis-prose ul,
+.anamnesis-prose ol {
+  margin: 0.75em 0;
+  padding-left: 1.3em;
+}
+.anamnesis-prose ul {
+  list-style: disc;
+}
+.anamnesis-prose ol {
+  list-style: decimal;
+}
+.anamnesis-prose li {
+  margin: 0.3em 0;
+}
+.anamnesis-prose li::marker {
+  color: var(--faint);
+}
+.anamnesis-prose code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 0.35rem;
+  padding: 0.1em 0.35em;
+}
+.anamnesis-prose pre {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+  margin: 1em 0;
+}
+.anamnesis-prose pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+.anamnesis-prose blockquote {
+  border-left: 2px solid var(--accent);
+  padding-left: 1rem;
+  color: var(--muted);
+  margin: 1em 0;
+}
+.anamnesis-prose hr {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 1.5em 0;
+}
+.anamnesis-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  margin: 1em 0;
+  display: block;
+  overflow-x: auto;
+}
+.anamnesis-prose th,
+.anamnesis-prose td {
+  border: 1px solid var(--line);
+  padding: 0.5rem 0.7rem;
+  text-align: left;
+}
+.anamnesis-prose th {
+  background: var(--surface-2);
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
