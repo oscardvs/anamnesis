@@ -149,7 +149,10 @@ tested, and validated on real hardware: a note written on the desktop is searcha
 and a full personal corpus round-trips across machines. Auto-capture and auto-sync **session hooks**
 (SessionStart inject plus background sync, SessionEnd and PreCompact capture) are built and tested, and a
 one-command installer (`anamnesis init`) wires up the MCP server, hooks, store, and first sync.
-**Next:** publishing to PyPI for a one-line install and the git-like dashboard.
+
+**Phase 1 adds the git-like dashboard** (Next.js): browse plus full-text search, a history view
+driven by the real git log, a per-machine fleet view with sync status, and inline edit that writes
+back to markdown and reindexes. **Next:** publishing to PyPI for a one-line install.
 
 > Pre-alpha: APIs and setup may still change. Watch/star to follow along.
 
