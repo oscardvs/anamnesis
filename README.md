@@ -141,6 +141,24 @@ as the server.
 The session-end summary is deterministic by default and needs no API key; the summarization model is a
 swappable config value (`ANAMNESIS_REFLECTION_PROVIDER`) for when a reflection model is plugged in later.
 
+## Dashboard
+
+A git-like GUI for your memory: browse and full-text search every note, read and edit markdown with the
+full history of each note, and see your whole fleet - which machine wrote what, and when it last synced.
+Edits write straight back to the markdown and re-index; sync conflicts are surfaced, not hidden.
+
+![The Anamnesis dashboard showing a synced cross-machine memory store](assets/dashboard.png)
+
+```bash
+cd dashboard
+npm install
+npm run dev      # http://localhost:3000
+```
+
+It is a thin read/write client over the same local store the MCP server uses (it reads the SQLite index
+directly and shells out to the `anamnesis` CLI for writes and sync). See
+[`dashboard/README.md`](dashboard/README.md) for configuration and design notes.
+
 ## Status
 
 **Phase 0 works - the local-first core.** The file-first store, the FastMCP server
