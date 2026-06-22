@@ -137,10 +137,17 @@ CREATE TABLE IF NOT EXISTS memories (
   machine_id   TEXT NOT NULL,
   scope        TEXT NOT NULL DEFAULT 'portable' CHECK (scope IN ('portable','machine-local')),
   created_at   TEXT NOT NULL,
-  updated_at   TEXT NOT NULL
+  updated_at   TEXT NOT NULL,
+  prov_source  TEXT NOT NULL DEFAULT 'human'
+               CHECK (prov_source IN ('human','session-end','reflection','import')),
+  prov_model   TEXT,
+  prov_session TEXT,
+  confidence   REAL NOT NULL DEFAULT 1.0,
+  supersedes   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_mem_scope   ON memories(project, type, scope);
 CREATE INDEX IF NOT EXISTS idx_mem_recency ON memories(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_mem_prov    ON memories(prov_source);
 
 CREATE TABLE IF NOT EXISTS memory_tags (
   memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
@@ -152,6 +159,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
   id UNINDEXED, title, body, tags, tokenize='porter unicode61'
 );
 """
+
+_SCHEMA_VERSION = 1
 
 
 class MemoryStore:
@@ -169,12 +178,27 @@ class MemoryStore:
         # check_same_thread=False: the FastMCP server runs sync tools in a worker
         # threadpool, so the connection is shared across threads. SQLite's
         # serialized threadsafety + WAL + busy_timeout (below) keep that safe.
+        db_existed = self.db_path.exists()
         self._db = sqlite3.connect(self.db_path, check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.execute("PRAGMA busy_timeout=5000")
+        version = self._db.execute("PRAGMA user_version").fetchone()[0]
+        needs_migration = db_existed and version < _SCHEMA_VERSION
+        if needs_migration:
+            # The index is fully derived from markdown, so the safe upgrade is to
+            # drop the derived tables, recreate them with the current schema, and
+            # reindex from the markdown source of truth.
+            self._db.executescript(
+                "DROP TABLE IF EXISTS memories;"
+                "DROP TABLE IF EXISTS memory_tags;"
+                "DROP TABLE IF EXISTS memories_fts;"
+            )
         self._db.executescript(_SCHEMA)
+        self._db.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
         self._db.commit()
+        if needs_migration:
+            self.reindex()
 
     def _dir_for_scope(self, scope: Scope) -> Path:
         """The tree a note lives in: machine-local stays out of the synced memory/."""
@@ -190,6 +214,11 @@ class MemoryStore:
         machine_id: str = "unknown",
         tags: list[str] | None = None,
         scope: Scope = "portable",
+        prov_source: str = "human",
+        prov_model: str = "",
+        prov_session: str = "",
+        confidence: float = 1.0,
+        supersedes: str = "",
     ) -> Memory:
         """Create a memory: write the markdown file, then index it."""
         now = _utcnow()
@@ -204,6 +233,11 @@ class MemoryStore:
             tags=list(tags or []),
             created_at=now,
             updated_at=now,
+            prov_source=prov_source,
+            prov_model=prov_model,
+            prov_session=prov_session,
+            confidence=confidence,
+            supersedes=supersedes,
         )
         rel_path = f"{mem.type}/{mem.id}.md"
         abs_path = self._dir_for_scope(mem.scope) / rel_path
@@ -343,8 +377,9 @@ class MemoryStore:
     def _index(self, mem: Memory, rel_path: str) -> None:
         self._db.execute(
             """INSERT OR REPLACE INTO memories
-               (id, type, title, body_path, project, machine_id, scope, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (id, type, title, body_path, project, machine_id, scope, created_at, updated_at,
+                prov_source, prov_model, prov_session, confidence, supersedes)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 mem.id,
                 mem.type,
@@ -355,6 +390,11 @@ class MemoryStore:
                 mem.scope,
                 mem.created_at,
                 mem.updated_at,
+                mem.prov_source,
+                mem.prov_model or None,
+                mem.prov_session or None,
+                mem.confidence,
+                mem.supersedes or None,
             ),
         )
         self._db.execute("DELETE FROM memory_tags WHERE memory_id = ?", (mem.id,))
