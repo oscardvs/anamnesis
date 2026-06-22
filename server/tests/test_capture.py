@@ -3,6 +3,7 @@ import json
 from anamnesis.capture import (
     HeuristicSummarizer,
     ParsedSession,
+    is_trivial_session,
     parse_transcript,
     resolve_summarizer,
     write_episodic,
@@ -144,3 +145,36 @@ def test_write_episodic_persists_with_source_tag(tmp_path):
     assert mem.machine_id == "desktop"
     assert "precompact" in mem.tags
     assert mem.id in [x.id for x in store.list(project="proj")]
+
+
+def test_raw_holds_full_transcript(tmp_path):
+    p = _transcript(
+        tmp_path,
+        {"type": "user", "message": {"role": "user", "content": "Add a CLI"}},
+    )
+    s = parse_transcript(p)
+    assert "Add a CLI" in s.raw
+
+
+def test_trivial_empty_session():
+    assert is_trivial_session(ParsedSession()) is True
+
+
+def test_trivial_slash_command_only():
+    s = ParsedSession(first_prompt="/effort", last_outcome="")
+    assert is_trivial_session(s) is True
+
+
+def test_trivial_no_prompt_short_outcome():
+    s = ParsedSession(first_prompt="", last_outcome="ok")
+    assert is_trivial_session(s) is True
+
+
+def test_not_trivial_when_files_touched():
+    s = ParsedSession(first_prompt="/clear", files_touched=["a.py"])
+    assert is_trivial_session(s) is False
+
+
+def test_not_trivial_real_prompt():
+    s = ParsedSession(first_prompt="How do I wire the sync hook?", last_outcome="")
+    assert is_trivial_session(s) is False

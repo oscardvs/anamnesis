@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,6 +32,7 @@ class ParsedSession:
     git_branch: str = ""
     cwd: str = ""
     session_id: str = ""
+    raw: str = ""
 
 
 def _text_of(content: object) -> str:
@@ -104,6 +106,7 @@ def parse_transcript(path: str | Path) -> ParsedSession:
                             session.files_touched.append(fp)
 
     session.last_outcome = last_text
+    session.raw = raw
     return session
 
 
@@ -113,6 +116,34 @@ _MAX_LEN = 600
 def _clip(text: str, limit: int = _MAX_LEN) -> str:
     text = text.strip()
     return text if len(text) <= limit else text[:limit].rstrip() + " ..."
+
+
+_TRIVIAL_OUTCOME_FLOOR = 40
+
+
+def _is_slash_command_only(prompt: str) -> bool:
+    """True for a lone slash command like ``/effort`` or ``/clear`` (no real ask)."""
+    return bool(re.fullmatch(r"/\S+", prompt.strip()))
+
+
+def is_trivial_session(session: ParsedSession) -> bool:
+    """True when a session is not worth an episodic note (the free skip gate).
+
+    Provider-agnostic; runs before any summarizer. Catches empty sessions and
+    slash-command-only stubs (the ``/effort`` / "Session summary" noise). A real
+    user prompt is never trivial here; the LLM self-skip handles subtler cases.
+    """
+    if session.files_touched:
+        return False
+    prompt = session.first_prompt.strip()
+    outcome = session.last_outcome.strip()
+    if not prompt and not outcome:
+        return True
+    if not prompt and len(outcome) < _TRIVIAL_OUTCOME_FLOOR:
+        return True
+    if _is_slash_command_only(prompt) and len(outcome) < _TRIVIAL_OUTCOME_FLOOR:
+        return True
+    return False
 
 
 class Summarizer(Protocol):
