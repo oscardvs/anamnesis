@@ -43,6 +43,33 @@ Writes (create/edit, reindex, sync) shell out to the `anamnesis` CLI so the Pyth
 single indexer. By default that is `uv run --project ../server anamnesis ...`, run from the dashboard
 directory. Set `ANAMNESIS_CLI` if the CLI is installed elsewhere or on `PATH`.
 
+## Install as an app
+
+The dashboard is one Next.js server (`output: "standalone"`) delivered three ways. All three read the
+machine-local `~/.anamnesis` store and need `git`, `uv`, `python`, and Node 20 present on any machine
+that runs a server instance (runtimes are not bundled).
+
+1. **Web (dev or local).** `npm run dev`, or `npm run build && npm run start`, then open
+   http://localhost:3000.
+2. **Phone + laptop over the tailnet (PWA).** Run one always-on instance on the hub and publish it
+   tailnet-only with `tailscale serve`, then install it to a home screen. See `deploy/README.md`. In
+   short: on iPhone open the tailnet URL in Safari and use Share, Add to Home Screen; on a laptop open
+   it in Chrome or Edge and use Install app.
+3. **Desktop app (Electron).** Build a packaged app:
+
+   ```bash
+   npm run desktop:build   # Linux: dist/*.AppImage and dist/*.deb
+   ```
+
+   Launch the AppImage (or install the deb). It runs its own local server against this machine's store,
+   so it works offline for reads. The build pins Electron 34 (Node 20, V8 13.2) so the Node-20
+   `better-sqlite3` native module compiles for Electron's ABI, then restores the Node-ABI build so the
+   web flow keeps working.
+
+Cross-platform: Linux is built and verified locally. macOS (dmg) and Windows (nsis) are produced by the
+`desktop build` GitHub Actions workflow (`.github/workflows/desktop.yml`) and are shipped unsigned and
+unverified until that hardware is available.
+
 ## Testing
 
 ```bash
