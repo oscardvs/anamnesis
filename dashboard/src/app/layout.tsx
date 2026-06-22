@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 
 import { AppFrame } from "@/components/app-frame";
 import { AppToaster } from "@/components/app-toaster";
+import { ServiceWorkerRegister } from "@/components/sw-register";
 import { ThemeProvider } from "@/components/theme-provider";
 
 import { pwaMetadata } from "./pwa-metadata";
@@ -26,6 +27,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="grain min-h-full">
+        <ServiceWorkerRegister />
         <ThemeProvider>
           <AppFrame>{children}</AppFrame>
           <AppToaster />
