@@ -27,6 +27,16 @@ export function memoryDir(home: string = resolveHome()): string {
   return path.join(home, "memory");
 }
 
+/** Machine-local notes: a sibling tree, NOT git-synced (mirrors the Python store). */
+export function localDir(home: string = resolveHome()): string {
+  return path.join(home, "local");
+}
+
+/** The on-disk tree a note lives in, chosen by its scope. */
+export function scopeDir(scope: string, home: string = resolveHome()): string {
+  return scope === "machine-local" ? localDir(home) : memoryDir(home);
+}
+
 /** The derived SQLite index (WAL + FTS5). Never the source of truth. */
 export function dbPath(home: string = resolveHome()): string {
   return path.join(home, "index.db");

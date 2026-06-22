@@ -120,3 +120,31 @@ describe("readNote", () => {
     expect(await readNote("01KV000000000000000000000X")).toBeNull();
   });
 });
+
+describe("machine-local scope", () => {
+  it("writes a machine-local note to local/ (not memory/) and does not commit it", async () => {
+    const res = await writeNote({
+      type: "semantic",
+      title: "local only",
+      body: "secret",
+      project: "p",
+      scope: "machine-local",
+    });
+    expect(res.memory.scope).toBe("machine-local");
+    expect(res.commit).toBeNull(); // local notes are never git-committed
+    expect(fs.existsSync(path.join(home, "local", "semantic", `${res.memory.id}.md`))).toBe(true);
+    expect(fs.existsSync(path.join(mem, "semantic", `${res.memory.id}.md`))).toBe(false);
+
+    const got = await readNote(res.memory.id);
+    expect(got?.body).toBe("secret");
+    expect(got?.scope).toBe("machine-local");
+  });
+
+  it("keeps portable notes in memory/ and commits them", async () => {
+    const res = await writeNote({ type: "semantic", title: "shared", body: "b", project: "p" });
+    expect(res.memory.scope).toBe("portable");
+    expect(res.commit).not.toBeNull();
+    expect(fs.existsSync(path.join(mem, "semantic", `${res.memory.id}.md`))).toBe(true);
+    expect(fs.existsSync(path.join(home, "local", "semantic", `${res.memory.id}.md`))).toBe(false);
+  });
+});
