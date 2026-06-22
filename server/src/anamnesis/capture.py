@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,6 +32,7 @@ class ParsedSession:
     git_branch: str = ""
     cwd: str = ""
     session_id: str = ""
+    raw: str = ""
 
 
 def _text_of(content: object) -> str:
@@ -104,6 +106,7 @@ def parse_transcript(path: str | Path) -> ParsedSession:
                             session.files_touched.append(fp)
 
     session.last_outcome = last_text
+    session.raw = raw
     return session
 
 
@@ -115,16 +118,44 @@ def _clip(text: str, limit: int = _MAX_LEN) -> str:
     return text if len(text) <= limit else text[:limit].rstrip() + " ..."
 
 
-class Summarizer(Protocol):
-    """Turns a parsed session into an episodic note (title, body)."""
+_TRIVIAL_OUTCOME_FLOOR = 40
 
-    def summarize(self, session: ParsedSession) -> tuple[str, str]: ...
+
+def _is_slash_command_only(prompt: str) -> bool:
+    """True for a lone slash command like ``/effort`` or ``/clear`` (no real ask)."""
+    return bool(re.fullmatch(r"/\S+", prompt.strip()))
+
+
+def is_trivial_session(session: ParsedSession) -> bool:
+    """True when a session is not worth an episodic note (the free skip gate).
+
+    Provider-agnostic; runs before any summarizer. Catches empty sessions and
+    slash-command-only stubs (the ``/effort`` / "Session summary" noise). A real
+    user prompt is never trivial here; the LLM self-skip handles subtler cases.
+    """
+    if session.files_touched:
+        return False
+    prompt = session.first_prompt.strip()
+    outcome = session.last_outcome.strip()
+    if not prompt and not outcome:
+        return True
+    if not prompt and len(outcome) < _TRIVIAL_OUTCOME_FLOOR:
+        return True
+    if _is_slash_command_only(prompt) and len(outcome) < _TRIVIAL_OUTCOME_FLOOR:
+        return True
+    return False
+
+
+class Summarizer(Protocol):
+    """Turns a parsed session into an episodic note, or ``None`` to skip it."""
+
+    def summarize(self, session: ParsedSession) -> tuple[str, str] | None: ...
 
 
 class HeuristicSummarizer:
     """Deterministic v0 summary: the ask, the branch, files touched, the outcome."""
 
-    def summarize(self, session: ParsedSession) -> tuple[str, str]:
+    def summarize(self, session: ParsedSession) -> tuple[str, str] | None:
         first = session.first_prompt
         title = first.splitlines()[0][:80] if first else "Session summary"
         parts = [f"**Ask:** {_clip(first) or '(no user prompt captured)'}", ""]
@@ -143,7 +174,20 @@ def _make_heuristic() -> Summarizer:
     return HeuristicSummarizer()
 
 
-_SUMMARIZERS: dict[str, Callable[[], Summarizer]] = {"heuristic": _make_heuristic}
+def _make_llm() -> Summarizer:
+    # Lazy import breaks the capture <-> llm_summarizer cycle and keeps the base
+    # (hook) install from importing the LLM path unless a provider is configured.
+    from anamnesis.llm_summarizer import make_llm_summarizer
+
+    return make_llm_summarizer()
+
+
+_SUMMARIZERS: dict[str, Callable[[], Summarizer]] = {
+    "heuristic": _make_heuristic,
+    "deepseek": _make_llm,
+    "openai": _make_llm,
+    "local": _make_llm,
+}
 
 
 def resolve_summarizer() -> Summarizer:
@@ -164,13 +208,21 @@ def write_episodic(
     project: str,
     source: str,
     machine_id: str,
-) -> Memory:
-    """Build and persist the episodic note. No sync; the caller orchestrates that.
+) -> Memory | None:
+    """Build and persist the episodic note, or return ``None`` to write nothing.
+
+    ``None`` happens two ways: the deterministic gate trips (trivial session), or
+    the summarizer self-skips. No sync; the caller orchestrates that.
 
     ``source`` (``session-end`` or ``precompact``) is recorded as a tag for now; a
     first-class ``prov_source`` column is a backlog follow-up (architecture section 8).
     """
-    title, body = summarizer.summarize(session)
+    if is_trivial_session(session):
+        return None
+    result = summarizer.summarize(session)
+    if result is None:
+        return None
+    title, body = result
     return store.write(
         type="episodic",
         title=title,

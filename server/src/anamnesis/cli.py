@@ -158,7 +158,12 @@ def cmd_capture(args: argparse.Namespace, payload: dict[str, object]) -> int:
             source=args.source,
             machine_id=resolve_machine_id(),
         )
-        print(f"capture: wrote episodic note {mem.id} (project={project}, source={args.source})")
+        if mem is None:
+            print(f"capture: skipped trivial session (project={project}, source={args.source})")
+        else:
+            print(
+                f"capture: wrote episodic note {mem.id} (project={project}, source={args.source})"
+            )
         if not args.no_sync:
             result = _run_sync(store, _backend(store))
             print(f"capture: synced (pushed={result.pushed} pulled={result.pulled})")
