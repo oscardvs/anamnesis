@@ -6,7 +6,7 @@ from anamnesis.inject import (
     resolve_project_key,
     select_inject,
 )
-from anamnesis.store import MemoryStore
+from anamnesis.store import Memory, MemoryStore
 
 
 def _git(cwd, *args):
@@ -125,3 +125,83 @@ def test_resolve_project_key_marker_not_read_at_or_above_home(tmp_path, monkeypa
     (home / ".anamnesis" / "project").write_text("home-level\n", encoding="utf-8")
     monkeypatch.setattr("pathlib.Path.home", lambda: home)
     assert resolve_project_key(proj) == "proj"  # home marker not picked up
+
+
+def test_select_inject_excludes_superseded(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    old = _write(store, type="semantic", title="old-fact", body="x", project="p")
+    _write(store, type="semantic", title="new-fact", body="y", project="p", supersedes=old.id)
+    g_old = _write(store, type="semantic", title="g-old", body="x", project="global")
+    _write(store, type="semantic", title="g-new", body="y", project="global", supersedes=g_old.id)
+    ids = {m.id for m in select_inject(store, project="p", k=8)}
+    assert old.id not in ids  # superseded project note hidden
+    assert g_old.id not in ids  # superseded global note hidden
+
+
+def test_select_inject_drops_reflected_episodics(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    _write(store, type="episodic", title="kept-session", body="b", project="p", tags=["session"])
+    _write(
+        store,
+        type="episodic",
+        title="done-session",
+        body="b",
+        project="p",
+        tags=["session", "reflected"],
+    )
+    titles = {m.title for m in select_inject(store, project="p", k=8)}
+    assert "kept-session" in titles
+    assert "done-session" not in titles  # already distilled
+
+
+def test_select_inject_confidence_breaks_updated_at_tie(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    ts = "2026-01-01T00:00:00+00:00"
+    store.put(
+        Memory(
+            id="lo",
+            type="semantic",
+            title="lo",
+            body="x",
+            project="p",
+            confidence=0.6,
+            created_at=ts,
+            updated_at=ts,
+        )
+    )
+    store.put(
+        Memory(
+            id="hi",
+            type="semantic",
+            title="hi",
+            body="x",
+            project="p",
+            confidence=1.0,
+            created_at=ts,
+            updated_at=ts,
+        )
+    )
+    sel = select_inject(store, project="p", k=8)
+    assert sel[0].id == "hi"  # equal updated_at -> higher confidence first
+
+
+def test_render_inject_labels_reflection_provenance(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    _write(
+        store,
+        type="semantic",
+        title="distilled",
+        body="durable fact",
+        project="p",
+        prov_source="reflection",
+        confidence=0.6,
+    )
+    text = render_inject(select_inject(store, project="p", k=8))
+    assert "source: reflection (confidence 0.6)" in text
+
+
+def test_render_inject_no_source_label_for_human_note(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    _write(store, type="semantic", title="human-fact", body="x", project="p")
+    text = render_inject(select_inject(store, project="p", k=8))
+    assert "source:" not in text

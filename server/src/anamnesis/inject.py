@@ -90,14 +90,22 @@ def select_inject(store: MemoryStore, *, project: str, k: int = 8) -> list[Memor
 
     All ``global`` notes (always, in full) plus up to ``k`` project notes: recent
     durable (procedural/semantic) notes fill the budget, reserving up to two of the
-    most recent episodic notes for the "what I last did" continuity thread.
+    most recent episodic notes for the "what I last did" continuity thread. Superseded
+    notes are hidden (still browsable via ``list``); already-reflected episodics are
+    dropped (their content is in the durable notes); confidence breaks recency ties.
     """
-    global_notes = store.list(project="global")
+    superseded = store.superseded_ids()
+    global_notes = [m for m in store.list(project="global") if m.id not in superseded]
     durable: list[Memory] = []
     for note_type in _DURABLE:
         durable.extend(store.list(project=project, type=note_type))
-    durable.sort(key=lambda m: m.updated_at, reverse=True)
-    episodic = store.list(project=project, type="episodic")[:_MAX_EPISODIC]
+    durable = [m for m in durable if m.id not in superseded]
+    durable.sort(key=lambda m: (m.updated_at, m.confidence), reverse=True)
+    episodic = [
+        m
+        for m in store.list(project=project, type="episodic")
+        if m.id not in superseded and "reflected" not in m.tags
+    ][:_MAX_EPISODIC]
 
     budget = max(0, k)
     reserve = min(len(episodic), budget)
@@ -120,7 +128,11 @@ def render_inject(memories: list[Memory]) -> str:
     lines = ["# Anamnesis memory (auto-injected)", ""]
     for m in memories:
         lines.append(f"## [{m.type}] {m.title}")
-        lines.append(f"_project: {m.project} | origin: {m.machine_id}_")
+        meta = f"_project: {m.project} | origin: {m.machine_id}"
+        if m.prov_source != "human" or m.confidence < 1.0:
+            meta += f" | source: {m.prov_source} (confidence {m.confidence:g})"
+        meta += "_"
+        lines.append(meta)
         lines.append("")
         if m.body:
             lines.append(m.body)
