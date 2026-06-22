@@ -4,6 +4,9 @@ from anamnesis.reflect import (
     DistilledNote,
     Reflector,
     _parse_reflection,
+    apply_reflection,
+    make_reflector,
+    resolve_min_episodics,
     select_unreflected,
 )
 from anamnesis.store import MemoryStore
@@ -75,3 +78,81 @@ def test_reflector_raises_on_client_error():
     reflector = Reflector(client=boom, model_label="deepseek/test")
     with pytest.raises(TimeoutError):
         reflector.reflect([])
+
+
+def test_resolve_min_episodics_default_and_env(monkeypatch):
+    monkeypatch.delenv("ANAMNESIS_REFLECT_MIN_EPISODICS", raising=False)
+    assert resolve_min_episodics() == 5
+    monkeypatch.setenv("ANAMNESIS_REFLECT_MIN_EPISODICS", "12")
+    assert resolve_min_episodics() == 12
+
+
+def test_make_reflector_none_without_config(monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_REFLECTION_PROVIDER", "deepseek")
+    monkeypatch.delenv("ANAMNESIS_REFLECTION_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    assert make_reflector() is None
+
+
+def test_apply_reflection_writes_notes_and_tags_episodics(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    eps = [
+        store.write(type="episodic", title=f"s{i}", body="did work", project="p", tags=["session"])
+        for i in range(3)
+    ]
+    reflector = Reflector(
+        client=_client_returning(
+            '[{"type":"semantic","title":"Prefers uv","body":"Use uv."},'
+            '{"type":"procedural","title":"Tests","body":"uv run pytest."}]'
+        ),
+        model_label="deepseek/test",
+    )
+    result = apply_reflection(store, "p", reflector, machine_id="m")
+    assert result.episodics == 3
+    assert result.notes_written == 2
+
+    reflections = store.list(project="p", type="semantic") + store.list(
+        project="p", type="procedural"
+    )
+    assert len(reflections) == 2
+    note = reflections[0]
+    assert note.prov_source == "reflection"
+    assert note.prov_model == "deepseek/test"
+    assert note.confidence == 0.6
+    assert "reflection" in note.tags
+
+    # episodics are now tagged reflected, so a second run distills nothing
+    for ep in eps:
+        assert "reflected" in store.get(ep.id).tags
+    assert select_unreflected(store, "p") == []
+    store.close()
+
+
+def test_apply_reflection_writes_nothing_on_client_error(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    store.write(type="episodic", title="s", body="x", project="p", tags=["session"])
+
+    def boom(system, user):
+        raise TimeoutError("down")
+
+    reflector = Reflector(client=boom, model_label="deepseek/test")
+    with pytest.raises(TimeoutError):
+        apply_reflection(store, "p", reflector, machine_id="m")
+    assert store.list(project="p", type="semantic") == []
+    assert select_unreflected(store, "p") != []  # episodics untouched
+    store.close()
+
+
+def test_select_unreflected_excludes_machine_local(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    store.write(
+        type="episodic", title="ml", body="x", project="p", tags=["session"], scope="machine-local"
+    )
+    assert select_unreflected(store, "p") == []
+    store.close()
+
+
+def test_parse_reflection_rejects_missing_title():
+    with pytest.raises(ValueError):
+        _parse_reflection('[{"type": "semantic", "title": "", "body": "B"}]')

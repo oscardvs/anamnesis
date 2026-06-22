@@ -11,12 +11,15 @@ Generic logic; tests inject a fake client and never touch the network.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 
 from anamnesis.llm_summarizer import (
     LLMClient,
+    _http_client,
     _strip_fences,
     _window,
+    resolve_reflection_config,
 )
 from anamnesis.redact import redact
 from anamnesis.store import Memory, MemoryStore
@@ -92,3 +95,66 @@ class Reflector:
         content = _window(redact(_render_episodics(episodics)), self.max_chars)
         text = self.client(REFLECT_SYSTEM_PROMPT, content)
         return _parse_reflection(text)
+
+
+@dataclass
+class ReflectResult:
+    """Outcome of reflecting one project."""
+
+    project: str
+    episodics: int
+    notes_written: int
+
+
+def resolve_min_episodics() -> int:
+    """Min un-reflected episodics before a project is worth reflecting (env-overridable)."""
+    try:
+        return int(os.environ.get("ANAMNESIS_REFLECT_MIN_EPISODICS", "5"))
+    except ValueError:
+        return 5
+
+
+def make_reflector() -> Reflector | None:
+    """Build a Reflector from config, or None when no provider/model/key is configured."""
+    cfg = resolve_reflection_config()
+    if not (cfg.model and cfg.base_url and cfg.api_key):
+        return None
+    client = _http_client(cfg.base_url, cfg.api_key, cfg.model, cfg.timeout)
+    return Reflector(
+        client=client,
+        model_label=f"{cfg.provider}/{cfg.model}",
+        max_chars=cfg.max_tokens * 4,
+    )
+
+
+def apply_reflection(
+    store: MemoryStore,
+    project: str,
+    reflector: Reflector,
+    *,
+    machine_id: str,
+    confidence: float = _DEFAULT_CONFIDENCE,
+) -> ReflectResult:
+    """Distill a project's un-reflected episodics, write the notes, tag the sources.
+
+    The LLM call happens first; if it raises, nothing is written (no fallback).
+    """
+    episodics = select_unreflected(store, project)
+    notes = reflector.reflect(episodics)
+    for note in notes:
+        store.write(
+            type=note.type,
+            title=note.title,
+            body=note.body,
+            project=project,
+            machine_id=machine_id,
+            scope="portable",
+            tags=["reflection"],
+            prov_source="reflection",
+            prov_model=reflector.model_label,
+            confidence=confidence,
+        )
+    for ep in episodics:
+        ep.tags = sorted(set(ep.tags) | {"reflected"})
+        store.put(ep)
+    return ReflectResult(project=project, episodics=len(episodics), notes_written=len(notes))
