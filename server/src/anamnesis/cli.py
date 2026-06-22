@@ -16,6 +16,7 @@ from pathlib import Path
 
 from anamnesis.capture import ParsedSession, parse_transcript, resolve_summarizer, write_episodic
 from anamnesis.config import resolve_claude_home, resolve_home, resolve_machine_id, resolve_remote
+from anamnesis.dedup import apply_dedup, plan_dedup
 from anamnesis.inject import render_inject, resolve_project_key, select_inject
 from anamnesis.migrate import apply_migration, plan_migration
 from anamnesis.native_import import ImportResult, import_native
@@ -52,6 +53,11 @@ def build_parser() -> argparse.ArgumentParser:
     pmig.add_argument("--map", dest="map_path", required=True)
     pmig.add_argument("--apply", action="store_true")
     pmig.add_argument("--no-sync", action="store_true")
+    pded = sub.add_parser(
+        "dedup", help="remove notes with a byte-identical body (dry-run unless --apply)"
+    )
+    pded.add_argument("--apply", action="store_true")
+    pded.add_argument("--no-sync", action="store_true")
     pin = sub.add_parser(
         "init", help="configure Claude Code (MCP + hooks), set up the store, and first sync"
     )
@@ -200,6 +206,31 @@ def cmd_migrate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_dedup(args: argparse.Namespace) -> int:
+    """Collapse notes with a byte-identical body to one keeper. Dry-run unless --apply."""
+    store = MemoryStore(resolve_home())
+    try:
+        if not args.apply:
+            changes = plan_dedup(store.memory_dir)
+            for c in changes:
+                print(f"dedup: remove {c.removed_id} [{c.project}] dup of {c.kept_id} {c.title!r}")
+            print(f"dedup: {len(changes)} duplicate(s) would be removed (dry-run; pass --apply)")
+            return 0
+        changes = apply_dedup(store.memory_dir)
+        if args.no_sync:
+            store.reindex()
+            print(f"dedup: removed {len(changes)} duplicate(s); reindexed (no sync)")
+        else:
+            result = _run_sync(store, _backend(store))
+            print(
+                f"dedup: removed {len(changes)} duplicate(s); "
+                f"synced (pushed={result.pushed} pulled={result.pulled})"
+            )
+    finally:
+        store.close()
+    return 0
+
+
 def cmd_import(args: argparse.Namespace) -> int:
     """Import Claude Code's native memory, then sync unless --no-sync.
 
@@ -310,6 +341,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_status()
     if command == "migrate":
         return cmd_migrate(args)
+    if command == "dedup":
+        return cmd_dedup(args)
     if command == "import":
         return cmd_import(args)
     if command == "init":

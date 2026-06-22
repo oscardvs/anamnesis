@@ -339,3 +339,28 @@ def test_init_parser_rejects_conflicting_flags():
         build_parser().parse_args(["init", "--remote", "x", "--local-only"])
     with pytest.raises(SystemExit):
         build_parser().parse_args(["init", "--command", "x", "--uv-project", "y"])
+
+
+def test_main_dispatches_dedup_dry_run(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    store = MemoryStore(root=tmp_path / "store")
+    store.write(type="episodic", title="s", body="dup", project="x", machine_id="m")
+    store.write(type="episodic", title="s", body="dup", project="y", machine_id="m")
+    store.close()
+    assert main(["dedup"]) == 0
+    assert "1 duplicate(s) would be removed" in capsys.readouterr().out
+
+
+def test_main_dispatches_dedup_apply(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    store = MemoryStore(root=tmp_path / "store")
+    store.write(type="episodic", title="s", body="dup", project="x", machine_id="m")
+    store.write(type="episodic", title="s", body="dup", project="y", machine_id="m")
+    store.close()
+    assert main(["dedup", "--apply", "--no-sync"]) == 0
+    assert "removed 1 duplicate(s)" in capsys.readouterr().out
+    store = MemoryStore(root=tmp_path / "store")
+    total = store.stats().total
+    store.close()
+    assert total == 1
