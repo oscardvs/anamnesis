@@ -253,3 +253,43 @@ def test_stats_reports_counts_by_scope(tmp_path):
         type="semantic", title="c", body="d", project="p", machine_id="m", scope="machine-local"
     )
     assert store.stats().by_scope == {"portable": 1, "machine-local": 1}
+
+
+from anamnesis.store import Memory, _deserialize, _serialize  # noqa: E402
+
+
+def test_serialize_roundtrip_preserves_provenance():
+    mem = Memory(
+        id="x",
+        type="semantic",
+        title="t",
+        body="b",
+        prov_source="reflection",
+        prov_model="deepseek/m",
+        prov_session="s1",
+        confidence=0.5,
+        supersedes="old-id",
+    )
+    back = _deserialize(_serialize(mem))
+    assert back.prov_source == "reflection"
+    assert back.prov_model == "deepseek/m"
+    assert back.prov_session == "s1"
+    assert back.confidence == 0.5
+    assert back.supersedes == "old-id"
+
+
+def test_deserialize_defaults_missing_provenance():
+    text = (
+        "---\n"
+        "id: a\ntype: semantic\ntitle: t\nproject: global\nmachine_id: m\n"
+        "scope: portable\n"
+        "created_at: '2026-01-01T00:00:00+00:00'\n"
+        "updated_at: '2026-01-01T00:00:00+00:00'\n"
+        "tags: []\n"
+        "---\nbody\n"
+    )
+    mem = _deserialize(text)
+    assert mem.prov_source == "human"
+    assert mem.confidence == 1.0
+    assert mem.prov_model == ""
+    assert mem.supersedes == ""

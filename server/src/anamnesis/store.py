@@ -58,6 +58,11 @@ class Memory:
     tags: list[str] = field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""
+    prov_source: str = "human"  # human | session-end | reflection | import
+    prov_model: str = ""
+    prov_session: str = ""
+    confidence: float = 1.0
+    supersedes: str = ""
 
 
 @dataclass
@@ -72,17 +77,25 @@ class StoreStats:
 
 def _serialize(mem: Memory) -> str:
     """Render a Memory as a markdown file: YAML front-matter + body."""
-    meta = {
+    meta: dict[str, object] = {
         "id": mem.id,
         "type": mem.type,
         "title": mem.title,
         "project": mem.project,
         "machine_id": mem.machine_id,
         "scope": mem.scope,
-        "created_at": mem.created_at,
-        "updated_at": mem.updated_at,
-        "tags": mem.tags,
+        "prov_source": mem.prov_source,
+        "confidence": mem.confidence,
     }
+    if mem.prov_model:
+        meta["prov_model"] = mem.prov_model
+    if mem.prov_session:
+        meta["prov_session"] = mem.prov_session
+    if mem.supersedes:
+        meta["supersedes"] = mem.supersedes
+    meta["created_at"] = mem.created_at
+    meta["updated_at"] = mem.updated_at
+    meta["tags"] = mem.tags
     front = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True)
     return f"{_FM_DELIM}{front}{_FM_DELIM}{mem.body}\n"
 
@@ -106,6 +119,11 @@ def _deserialize(text: str) -> Memory:
         tags=list(meta.get("tags") or []),
         created_at=meta.get("created_at", ""),
         updated_at=meta.get("updated_at", ""),
+        prov_source=meta.get("prov_source", "human"),
+        prov_model=meta.get("prov_model", ""),
+        prov_session=meta.get("prov_session", ""),
+        confidence=float(meta.get("confidence", 1.0)),
+        supersedes=meta.get("supersedes", ""),
     )
 
 
