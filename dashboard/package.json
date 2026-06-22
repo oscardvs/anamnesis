@@ -2,6 +2,7 @@
   "name": "dashboard",
   "version": "0.1.0",
   "private": true,
+  "main": "dist-electron/main.js",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -11,7 +12,10 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "next build && vitest run --config vitest.e2e.config.ts",
-    "icons": "node scripts/make-icons.mjs"
+    "icons": "node scripts/make-icons.mjs",
+    "build:electron": "node scripts/build-electron.mjs",
+    "desktop:dev": "npm run build && npm run build:electron && electron dist-electron/main.js",
+    "desktop:build": "npm run build && npm run build:electron && electron-rebuild -f -w better-sqlite3 && electron-builder"
   },
   "dependencies": {
     "better-sqlite3": "12.9.0",
@@ -33,12 +37,16 @@
     "yaml": "^2.9.0"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.4",
     "@tailwindcss/postcss": "^4",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "babel-plugin-react-compiler": "1.0.0",
+    "electron": "^42.0.0",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
     "sharp": "^0.34.0",
