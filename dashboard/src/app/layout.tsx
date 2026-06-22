@@ -5,6 +5,8 @@ import { AppFrame } from "@/components/app-frame";
 import { AppToaster } from "@/components/app-toaster";
 import { ThemeProvider } from "@/components/theme-provider";
 
+import { pwaMetadata } from "./pwa-metadata";
+
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -13,6 +15,7 @@ const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"]
 export const metadata: Metadata = {
   title: "Anamnesis",
   description: "Cross-machine memory for Claude Code - a git-like memory GUI.",
+  ...pwaMetadata,
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
