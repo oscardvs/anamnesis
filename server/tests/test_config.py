@@ -1,7 +1,12 @@
 import json
 from pathlib import Path
 
-from anamnesis.config import resolve_home, resolve_machine_id, resolve_remote
+from anamnesis.config import (
+    resolve_claude_home,
+    resolve_home,
+    resolve_machine_id,
+    resolve_remote,
+)
 
 
 def test_resolve_home_env_override_and_expanduser(monkeypatch):
@@ -56,6 +61,16 @@ def test_store_config_tolerates_missing_and_malformed(monkeypatch, tmp_path):
     assert resolve_remote() is None  # no config.json at all
     (tmp_path / "config.json").write_text("{ not json")
     assert resolve_remote() is None  # malformed config is ignored, not fatal
+
+
+def test_resolve_claude_home_env_override(monkeypatch, tmp_path):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "dotclaude"))
+    assert resolve_claude_home() == tmp_path / "dotclaude"
+
+
+def test_resolve_claude_home_default(monkeypatch):
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    assert resolve_claude_home() == Path.home() / ".claude"
 
 
 def test_server_reexports_resolvers_stay_importable():

@@ -19,6 +19,16 @@ def resolve_home() -> Path:
     return Path(raw).expanduser() if raw else Path.home() / ".anamnesis"
 
 
+def resolve_claude_home() -> Path:
+    """Claude Code's config dir: ``CLAUDE_CONFIG_DIR`` (as ``init`` uses), else ``~/.claude``.
+
+    Its ``projects/<slug>/memory`` trees hold Claude's native per-project memory,
+    which the importer mirrors into the Anamnesis store.
+    """
+    raw = os.environ.get("CLAUDE_CONFIG_DIR")
+    return Path(raw).expanduser() if raw else Path.home() / ".claude"
+
+
 def _store_config() -> dict[str, Any]:
     """Best-effort read of the per-store ``config.json`` (machine-local, never synced).
 

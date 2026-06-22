@@ -186,6 +186,21 @@ class MemoryStore:
         self._db.commit()
         return mem
 
+    def put(self, mem: Memory) -> Memory:
+        """Persist a fully-formed memory (explicit id) and index it; upsert by id.
+
+        Unlike :meth:`write`, the caller supplies the id and timestamps. Used by
+        the native-memory importer, which derives a stable id per source note so
+        re-imports overwrite in place rather than duplicating.
+        """
+        rel_path = f"{mem.type}/{mem.id}.md"
+        abs_path = self.memory_dir / rel_path
+        abs_path.parent.mkdir(parents=True, exist_ok=True)
+        abs_path.write_text(_serialize(mem), encoding="utf-8")
+        self._index(mem, rel_path)
+        self._db.commit()
+        return mem
+
     def search(
         self,
         query: str,

@@ -268,6 +268,72 @@ def test_main_dispatches_init_installs_hooks_and_syncs(tmp_path, monkeypatch):
     assert (tmp_path / "store" / "memory" / ".git").is_dir()
 
 
+_NATIVE_NOTE = (
+    "---\n"
+    "name: a-note\n"
+    'description: "A durable fact"\n'
+    "metadata:\n"
+    "  type: project\n"
+    "---\n"
+    "Body text.\n"
+)
+
+
+def _make_native(claude_home, slug="-home-user-repo"):
+    mem_dir = claude_home / "projects" / slug / "memory"
+    mem_dir.mkdir(parents=True)
+    (mem_dir / "a-note.md").write_text(_NATIVE_NOTE, encoding="utf-8")
+
+
+def test_main_dispatches_import_writes_native_notes(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    claude = tmp_path / "claude"
+    _make_native(claude)
+
+    rc = main(["import", "--claude-home", str(claude), "--no-sync"])
+    assert rc == 0
+    assert "import:" in capsys.readouterr().out
+
+    store = MemoryStore(root=tmp_path / "store")
+    notes = store.list()
+    store.close()
+    assert len(notes) == 1
+    assert notes[0].body == "Body text."
+    assert notes[0].scope == "portable"
+
+
+def test_sync_auto_imports_native_memory(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    claude = tmp_path / "claude"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(claude))
+    _make_native(claude)
+
+    assert main(["sync"]) == 0
+
+    store = MemoryStore(root=tmp_path / "store")
+    notes = store.list()
+    store.close()
+    assert any(n.body == "Body text." for n in notes)
+
+
+def test_sync_skips_import_when_disabled(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    claude = tmp_path / "claude"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(claude))
+    monkeypatch.setenv("ANAMNESIS_IMPORT_NATIVE", "0")
+    _make_native(claude)
+
+    assert main(["sync"]) == 0
+
+    store = MemoryStore(root=tmp_path / "store")
+    notes = store.list()
+    store.close()
+    assert notes == []
+
+
 def test_init_parser_rejects_conflicting_flags():
     with pytest.raises(SystemExit):
         build_parser().parse_args(["init", "--remote", "x", "--local-only"])

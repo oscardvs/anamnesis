@@ -10,13 +10,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
 from anamnesis.capture import ParsedSession, parse_transcript, resolve_summarizer, write_episodic
-from anamnesis.config import resolve_home, resolve_machine_id, resolve_remote
+from anamnesis.config import resolve_claude_home, resolve_home, resolve_machine_id, resolve_remote
 from anamnesis.inject import render_inject, resolve_project_key, select_inject
 from anamnesis.migrate import apply_migration, plan_migration
+from anamnesis.native_import import ImportResult, import_native
 from anamnesis.onboard import InitOptions, run_init
 from anamnesis.store import MemoryStore
 from anamnesis.sync import GitSyncBackend, SyncResult
@@ -39,6 +41,11 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--project", default=None)
     pc.add_argument("--source", default="session-end")
     pc.add_argument("--no-sync", action="store_true")
+    pim = sub.add_parser(
+        "import", help="import Claude Code's native per-project memory into the store"
+    )
+    pim.add_argument("--claude-home", dest="claude_home", default=None)
+    pim.add_argument("--no-sync", action="store_true")
     pmig = sub.add_parser(
         "migrate", help="re-key note projects from a JSON map (dry-run unless --apply)"
     )
@@ -94,8 +101,23 @@ def _backend(store: MemoryStore) -> GitSyncBackend:
     )
 
 
+def _maybe_import_native(store: MemoryStore) -> None:
+    """Mirror Claude Code's native memory into the store before a sync (best-effort).
+
+    Disabled by ``ANAMNESIS_IMPORT_NATIVE=0``. Failures never break the sync hot
+    path: they are reported to stderr and the sync proceeds.
+    """
+    if os.environ.get("ANAMNESIS_IMPORT_NATIVE", "1") == "0":
+        return
+    try:
+        import_native(store, claude_home=resolve_claude_home(), machine_id=resolve_machine_id())
+    except Exception as exc:  # noqa: BLE001 - import must never break a sync
+        print(f"import: skipped native import ({exc})", file=sys.stderr)
+
+
 def _run_sync(store: MemoryStore, backend: GitSyncBackend) -> SyncResult:
-    """One sync cycle: commit/pull --rebase/push, then rebuild the derived index."""
+    """One sync cycle: import native memory, commit/pull --rebase/push, then reindex."""
+    _maybe_import_native(store)
     result = backend.sync()
     store.reindex()
     return result
@@ -173,6 +195,30 @@ def cmd_migrate(args: argparse.Namespace) -> int:
                 f"migrate: applied {len(changes)} change(s); "
                 f"synced (pushed={result.pushed} pulled={result.pulled})"
             )
+    finally:
+        store.close()
+    return 0
+
+
+def cmd_import(args: argparse.Namespace) -> int:
+    """Import Claude Code's native memory, then sync unless --no-sync.
+
+    The same import runs automatically inside every sync cycle; this is the
+    explicit, one-shot entry point (and the way to seed a machine the first time).
+    """
+    claude_home = args.claude_home or resolve_claude_home()
+    store = MemoryStore(resolve_home())
+    try:
+        result: ImportResult = import_native(
+            store, claude_home=claude_home, machine_id=resolve_machine_id()
+        )
+        print(
+            f"import: imported={result.imported} updated={result.updated} "
+            f"skipped={result.skipped} (from {claude_home})"
+        )
+        if not args.no_sync:
+            sync = _run_sync(store, _backend(store))
+            print(f"import: synced (pushed={sync.pushed} pulled={sync.pulled})")
     finally:
         store.close()
     return 0
@@ -264,6 +310,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_status()
     if command == "migrate":
         return cmd_migrate(args)
+    if command == "import":
+        return cmd_import(args)
     if command == "init":
         return cmd_init(args)
     payload = read_hook_payload()
