@@ -1,0 +1,19 @@
+# Install to ~/.config/systemd/user/anamnesis-dashboard.service
+[Unit]
+Description=Anamnesis dashboard (standalone Next server)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/anamnesis/dashboard
+EnvironmentFile=%h/.config/anamnesis/dashboard.env
+Environment=PORT=3000
+Environment=HOSTNAME=127.0.0.1
+# /usr/bin/env resolves node from the PATH in dashboard.env (Node is nvm-managed,
+# and systemd cannot use a variable as the executable path).
+ExecStart=/usr/bin/env node .next/standalone/server.js
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
