@@ -174,3 +174,82 @@ def test_reindex_rebuilds_index_from_markdown_only(tmp_path):
     assert [m.id for m in fresh.search("rebuildable")] == [mem.id]
     assert fresh.get(mem.id).body == "recovered from markdown"
     assert fresh.get(mem.id).tags == ["recovery"]
+
+
+def test_machine_local_note_lands_in_local_tree_not_synced_memory(tmp_path):
+    # Machine-local notes must live OUTSIDE the git-synced memory/ tree so they
+    # never sync to other machines.
+    store = MemoryStore(root=tmp_path)
+    mem = store.write(
+        type="semantic",
+        title="local secret",
+        body="this machine only",
+        project="p",
+        machine_id="m",
+        scope="machine-local",
+    )
+    assert mem.scope == "machine-local"
+    assert not (store.memory_dir / f"{mem.type}/{mem.id}.md").exists()
+    assert (tmp_path / "local" / f"{mem.type}/{mem.id}.md").exists()
+
+
+def test_portable_note_still_lands_in_memory_tree(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    mem = store.write(type="semantic", title="t", body="b", project="p", machine_id="m")
+    assert mem.scope == "portable"
+    assert (store.memory_dir / f"{mem.type}/{mem.id}.md").exists()
+
+
+def test_get_reads_back_a_machine_local_note(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    mem = store.write(
+        type="procedural",
+        title="t",
+        body="local body",
+        project="p",
+        machine_id="m",
+        scope="machine-local",
+    )
+    got = store.get(mem.id)
+    assert got.body == "local body"
+    assert got.scope == "machine-local"
+
+
+def test_reindex_walks_both_trees_and_tags_scope_by_location(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    store.write(type="semantic", title="port", body="b1", project="p", machine_id="m")
+    store.write(
+        type="semantic", title="loc", body="b2", project="p", machine_id="m", scope="machine-local"
+    )
+    assert store.reindex() == 2
+    by_title = {m.title: m.scope for m in store.list(project="p")}
+    assert by_title == {"port": "portable", "loc": "machine-local"}
+
+
+def test_list_and_search_filter_by_scope_but_span_both_by_default(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    store.write(type="semantic", title="alpha", body="findme one", project="p", machine_id="m")
+    store.write(
+        type="semantic",
+        title="beta",
+        body="findme two",
+        project="p",
+        machine_id="m",
+        scope="machine-local",
+    )
+    assert len(store.list(project="p")) == 2  # spans both scopes
+    local_only = store.list(project="p", scope="machine-local")
+    assert [m.title for m in local_only] == ["beta"]
+
+    assert len(store.search("findme", project="p")) == 2
+    local_hits = store.search("findme", project="p", scope="machine-local")
+    assert [m.title for m in local_hits] == ["beta"]
+
+
+def test_stats_reports_counts_by_scope(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    store.write(type="semantic", title="a", body="b", project="p", machine_id="m")
+    store.write(
+        type="semantic", title="c", body="d", project="p", machine_id="m", scope="machine-local"
+    )
+    assert store.stats().by_scope == {"portable": 1, "machine-local": 1}

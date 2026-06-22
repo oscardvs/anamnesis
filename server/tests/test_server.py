@@ -209,3 +209,58 @@ def test_memory_sync_without_remote_commits_locally(tmp_path, monkeypatch):
     assert out["pushed"] is False
     assert out["conflicted"] is False
     assert "remote" in out["detail"]  # explains there is no remote configured
+
+
+def test_write_memory_accepts_machine_local_scope(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    out = write_memory(
+        store,
+        type="semantic",
+        title="local only",
+        body="stays here",
+        project="p",
+        machine_id="m",
+        scope="machine-local",
+    )
+    assert out["scope"] == "machine-local"
+    # written to the local/ tree, NOT the git-synced memory/ tree
+    assert list((tmp_path / "local").rglob("*.md"))
+    assert not list((tmp_path / "memory").rglob("*.md"))
+
+
+def test_search_and_list_memories_filter_by_scope(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    write_memory(store, type="semantic", title="alpha", body="findme", project="p", machine_id="m")
+    write_memory(
+        store,
+        type="semantic",
+        title="beta",
+        body="findme",
+        project="p",
+        machine_id="m",
+        scope="machine-local",
+    )
+    assert len(list_memories(store, project="p")) == 2
+    local_list = list_memories(store, project="p", scope="machine-local")
+    assert [m["title"] for m in local_list] == ["beta"]
+
+    assert len(search_memories(store, query="findme", project="p")) == 2
+    local_hits = search_memories(store, query="findme", project="p", scope="machine-local")
+    assert [m["title"] for m in local_hits] == ["beta"]
+
+
+def test_status_report_includes_by_scope(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    write_memory(store, type="semantic", title="a", body="b", project="p", machine_id="m")
+    write_memory(
+        store,
+        type="semantic",
+        title="c",
+        body="d",
+        project="p",
+        machine_id="m",
+        scope="machine-local",
+    )
+    backend = GitSyncBackend(store.memory_dir, remote=None, machine_id="m")
+    report = status_report(store, backend)
+    assert report["by_scope"] == {"portable": 1, "machine-local": 1}

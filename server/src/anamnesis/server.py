@@ -9,10 +9,10 @@ the store. The store root is resolved from ``ANAMNESIS_HOME`` (default
 Tools (read-only query tools carry ``readOnlyHint`` so a client can auto-approve
 them; writes are flagged for confirmation):
 
-- ``memory_search(query, project?, type?, k=8)``  read-only
-- ``memory_list(project?, type?)``                read-only
-- ``memory_status()``                             read-only
-- ``memory_write(type, title, body, project, tags?)``  write - confirm
+- ``memory_search(query, project?, type?, scope?, k=8)``  read-only
+- ``memory_list(project?, type?, scope?)``                read-only
+- ``memory_status()``                                     read-only
+- ``memory_write(type, title, body, project, tags?, scope?)``  write - confirm
 - ``memory_sync(force?)``                         write - git pull --rebase && push
 
 The store layer never imports FastMCP; the dependency points one way (server ->
@@ -56,10 +56,11 @@ def search_memories(
     query: str,
     project: str | None = None,
     type: MemoryType | None = None,
+    scope: str | None = None,
     k: int = 8,
 ) -> list[dict[str, object]]:
     """Keyword search (FTS5 BM25); returns ranked notes with body + metadata."""
-    hits = store.search(query, project=project, type=type, k=k)
+    hits = store.search(query, project=project, type=type, scope=scope, k=k)
     return [_memory_dict(m, include_body=True) for m in hits]
 
 
@@ -68,9 +69,13 @@ def list_memories(
     *,
     project: str | None = None,
     type: MemoryType | None = None,
+    scope: str | None = None,
 ) -> list[dict[str, object]]:
     """List notes newest-first; returns titles + metadata (no bodies)."""
-    return [_memory_dict(m, include_body=False) for m in store.list(project=project, type=type)]
+    return [
+        _memory_dict(m, include_body=False)
+        for m in store.list(project=project, type=type, scope=scope)
+    ]
 
 
 def write_memory(
@@ -82,6 +87,7 @@ def write_memory(
     project: str = "global",
     tags: list[str] | None = None,
     machine_id: str = "unknown",
+    scope: str = "portable",
 ) -> dict[str, object]:
     """Create a durable note (writes markdown + indexes it); returns its metadata."""
     mem = store.write(
@@ -91,6 +97,7 @@ def write_memory(
         project=project,
         machine_id=machine_id,
         tags=tags or [],
+        scope=scope,
     )
     return _memory_dict(mem, include_body=True)
 
@@ -105,6 +112,7 @@ def status_report(store: MemoryStore, backend: SyncBackend) -> dict[str, object]
         "total": s.total,
         "by_type": s.by_type,
         "by_project": s.by_project,
+        "by_scope": s.by_scope,
         "sync": {
             "initialized": st.initialized,
             "remote": st.remote,
@@ -149,25 +157,29 @@ def build_server(store: MemoryStore, *, machine_id: str | None = None) -> FastMC
         query: str,
         project: str | None = None,
         type: str | None = None,
+        scope: str | None = None,
         k: int = 8,
     ) -> list[dict[str, object]]:
-        """Search memory by keyword (FTS5 BM25), optionally scoped by project/type.
+        """Search memory by keyword (FTS5 BM25), optionally scoped by project/type/scope.
 
         Read-only. Returns up to ``k`` ranked notes, each with its body and
-        metadata (id, type, project, machine of origin, tags, timestamps).
+        metadata (id, type, project, machine of origin, scope, tags, timestamps).
+        ``scope`` filters to "portable" (synced) or "machine-local" (this machine only).
         """
-        return search_memories(store, query=query, project=project, type=type, k=k)
+        return search_memories(store, query=query, project=project, type=type, scope=scope, k=k)
 
     @mcp.tool(annotations=_READ_ONLY)
     def memory_list(
         project: str | None = None,
         type: str | None = None,
+        scope: str | None = None,
     ) -> list[dict[str, object]]:
         """List memory notes newest-first (titles + metadata, no bodies).
 
-        Read-only. Optionally scoped by project and/or type.
+        Read-only. Optionally scoped by project, type, and/or scope
+        ("portable" vs "machine-local").
         """
-        return list_memories(store, project=project, type=type)
+        return list_memories(store, project=project, type=type, scope=scope)
 
     @mcp.tool(annotations=_READ_ONLY)
     def memory_status() -> dict[str, object]:
@@ -184,16 +196,26 @@ def build_server(store: MemoryStore, *, machine_id: str | None = None) -> FastMC
         body: str,
         project: str = "global",
         tags: list[str] | None = None,
+        scope: str = "portable",
     ) -> dict[str, object]:
         """Create a durable memory note: write the markdown file and index it.
 
         Use ``type`` = procedural (verified how-tos, decisions, fixes), semantic
-        (facts, preferences, conventions), or episodic (what happened). The note
-        is tagged with this machine as its origin. Returns the created note's
-        metadata. This modifies the store, so it is not auto-approved.
+        (facts, preferences, conventions), or episodic (what happened). ``scope`` =
+        "portable" (default; syncs to your other machines) or "machine-local"
+        (stays on this machine only, never synced). The note is tagged with this
+        machine as its origin. Returns the created note's metadata. This modifies
+        the store, so it is not auto-approved.
         """
         return write_memory(
-            store, type=type, title=title, body=body, project=project, tags=tags, machine_id=mid
+            store,
+            type=type,
+            title=title,
+            body=body,
+            project=project,
+            tags=tags,
+            machine_id=mid,
+            scope=scope,
         )
 
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, openWorldHint=True))

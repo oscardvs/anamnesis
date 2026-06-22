@@ -67,6 +67,7 @@ class StoreStats:
     total: int
     by_type: dict[str, int]
     by_project: dict[str, int]
+    by_scope: dict[str, int] = field(default_factory=dict)
 
 
 def _serialize(mem: Memory) -> str:
@@ -141,8 +142,12 @@ class MemoryStore:
     def __init__(self, root: Path | str) -> None:
         self.root = Path(root)
         self.memory_dir = self.root / "memory"
+        # Machine-local notes live here, OUTSIDE the git-synced memory/ tree, so
+        # they are never pushed to other machines (architecture: scope split).
+        self.local_dir = self.root / "local"
         self.db_path = self.root / "index.db"
         self.memory_dir.mkdir(parents=True, exist_ok=True)
+        self.local_dir.mkdir(parents=True, exist_ok=True)
         # check_same_thread=False: the FastMCP server runs sync tools in a worker
         # threadpool, so the connection is shared across threads. SQLite's
         # serialized threadsafety + WAL + busy_timeout (below) keep that safe.
@@ -152,6 +157,10 @@ class MemoryStore:
         self._db.execute("PRAGMA busy_timeout=5000")
         self._db.executescript(_SCHEMA)
         self._db.commit()
+
+    def _dir_for_scope(self, scope: Scope) -> Path:
+        """The tree a note lives in: machine-local stays out of the synced memory/."""
+        return self.local_dir if scope == "machine-local" else self.memory_dir
 
     def write(
         self,
@@ -179,7 +188,7 @@ class MemoryStore:
             updated_at=now,
         )
         rel_path = f"{mem.type}/{mem.id}.md"
-        abs_path = self.memory_dir / rel_path
+        abs_path = self._dir_for_scope(mem.scope) / rel_path
         abs_path.parent.mkdir(parents=True, exist_ok=True)
         abs_path.write_text(_serialize(mem), encoding="utf-8")
         self._index(mem, rel_path)
@@ -194,7 +203,7 @@ class MemoryStore:
         re-imports overwrite in place rather than duplicating.
         """
         rel_path = f"{mem.type}/{mem.id}.md"
-        abs_path = self.memory_dir / rel_path
+        abs_path = self._dir_for_scope(mem.scope) / rel_path
         abs_path.parent.mkdir(parents=True, exist_ok=True)
         abs_path.write_text(_serialize(mem), encoding="utf-8")
         self._index(mem, rel_path)
@@ -207,9 +216,10 @@ class MemoryStore:
         *,
         project: str | None = None,
         type: MemoryType | None = None,
+        scope: Scope | None = None,
         k: int = 8,
     ) -> list[Memory]:
-        """Keyword (FTS5 BM25) search, optionally scoped by project/type."""
+        """Keyword (FTS5 BM25) search, optionally scoped by project/type/scope."""
         match = _fts_query(query)
         if not match:
             return []
@@ -225,6 +235,9 @@ class MemoryStore:
         if type is not None:
             sql.append("AND m.type = ?")
             params.append(type)
+        if scope is not None:
+            sql.append("AND m.scope = ?")
+            params.append(scope)
         sql.append("ORDER BY bm25(memories_fts), m.updated_at DESC LIMIT ?")
         params.append(k)
         rows = self._db.execute(" ".join(sql), params).fetchall()
@@ -235,8 +248,9 @@ class MemoryStore:
         *,
         project: str | None = None,
         type: MemoryType | None = None,
+        scope: Scope | None = None,
     ) -> list[Memory]:
-        """List memories (newest first), optionally scoped by project/type."""
+        """List memories (newest first), optionally scoped by project/type/scope."""
         sql = ["SELECT id FROM memories"]
         clauses: list[str] = []
         params: list[object] = []
@@ -246,6 +260,9 @@ class MemoryStore:
         if type is not None:
             clauses.append("type = ?")
             params.append(type)
+        if scope is not None:
+            clauses.append("scope = ?")
+            params.append(scope)
         if clauses:
             sql.append("WHERE " + " AND ".join(clauses))
         sql.append("ORDER BY updated_at DESC, id DESC")
@@ -265,16 +282,21 @@ class MemoryStore:
                 "SELECT project, COUNT(*) AS c FROM memories GROUP BY project"
             )
         }
-        return StoreStats(total=total, by_type=by_type, by_project=by_project)
+        by_scope = {
+            r["scope"]: r["c"]
+            for r in self._db.execute("SELECT scope, COUNT(*) AS c FROM memories GROUP BY scope")
+        }
+        return StoreStats(total=total, by_type=by_type, by_project=by_project, by_scope=by_scope)
 
     def get(self, memory_id: str) -> Memory:
         """Read a memory back from its markdown file (the source of truth)."""
         row = self._db.execute(
-            "SELECT body_path FROM memories WHERE id = ?", (memory_id,)
+            "SELECT body_path, scope FROM memories WHERE id = ?", (memory_id,)
         ).fetchone()
         if row is None:
             raise KeyError(memory_id)
-        text = (self.memory_dir / row["body_path"]).read_text(encoding="utf-8")
+        base = self._dir_for_scope(row["scope"])
+        text = (base / row["body_path"]).read_text(encoding="utf-8")
         return _deserialize(text)
 
     def reindex(self) -> int:
@@ -283,10 +305,14 @@ class MemoryStore:
         self._db.execute("DELETE FROM memory_tags")
         self._db.execute("DELETE FROM memories_fts")
         count = 0
-        for path in sorted(self.memory_dir.rglob("*.md")):
-            mem = _deserialize(path.read_text(encoding="utf-8"))
-            self._index(mem, str(path.relative_to(self.memory_dir)))
-            count += 1
+        # The tree a note lives in is authoritative for its scope: memory/ is
+        # portable (synced), local/ is machine-local (never synced).
+        for base, scope in ((self.memory_dir, "portable"), (self.local_dir, "machine-local")):
+            for path in sorted(base.rglob("*.md")):
+                mem = _deserialize(path.read_text(encoding="utf-8"))
+                mem.scope = scope
+                self._index(mem, str(path.relative_to(base)))
+                count += 1
         self._db.commit()
         return count
 
