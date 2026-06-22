@@ -6,17 +6,18 @@
   "homepage": "https://github.com/oscardvs/anamnesis",
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node scripts/clean-build-artifacts.mjs",
     "build": "next build",
     "postbuild": "node scripts/standalone-assets.mjs",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:e2e": "next build && vitest run --config vitest.e2e.config.ts",
+    "test:e2e": "npm run build && vitest run --config vitest.e2e.config.ts",
     "icons": "node scripts/make-icons.mjs",
     "build:electron": "node scripts/build-electron.mjs",
     "desktop:dev": "npm run build && npm run build:electron && electron dist-electron/main.js",
-    "desktop:build": "npm run build && npm run build:electron && electron-rebuild -f -w better-sqlite3 && electron-builder && npm rebuild better-sqlite3"
+    "desktop:build": "node scripts/desktop-build.mjs"
   },
   "dependencies": {
     "better-sqlite3": "12.9.0",

@@ -5,9 +5,10 @@ import { app, BrowserWindow } from "electron";
 
 import { buildServerEnv, getFreePort, waitForPort } from "./server-process";
 
-// In the packaged app, resources live under the app root; in dev we run from
-// the dashboard folder. process.resourcesPath is set when packaged.
-const appRoot = app.isPackaged ? process.resourcesPath : join(__dirname, "..");
+// With asar disabled, packaged files live under resources/app, so the
+// dist-electron -> app-root relationship is the same as in dev: one level up
+// from __dirname. (process.resourcesPath would point at resources/, missing app/.)
+const appRoot = join(__dirname, "..");
 const serverJs = join(appRoot, ".next", "standalone", "server.js");
 
 let serverProc: ChildProcess | undefined;
@@ -43,7 +44,14 @@ async function createWindow(): Promise<void> {
   await win.loadURL(`http://127.0.0.1:${port}`);
 }
 
-app.whenReady().then(createWindow);
+app.whenReady()
+  .then(createWindow)
+  .catch((err) => {
+    // If the server never came up (e.g. waitForPort timed out), do not leave a
+    // windowless app hanging: log and quit so the child is killed on before-quit.
+    console.error("anamnesis: failed to start the server", err);
+    app.quit();
+  });
 
 app.on("window-all-closed", () => app.quit());
 

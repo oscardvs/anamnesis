@@ -10,8 +10,9 @@ EnvironmentFile=%h/.config/anamnesis/dashboard.env
 Environment=PORT=3000
 Environment=HOSTNAME=127.0.0.1
 # /usr/bin/env resolves node from the PATH in dashboard.env (Node is nvm-managed,
-# and systemd cannot use a variable as the executable path).
-ExecStart=/usr/bin/env node .next/standalone/server.js
+# and systemd cannot use a variable as the executable path). scripts/serve.cjs
+# forces HOSTNAME=127.0.0.1 (loopback only); exposure is via tailscale serve.
+ExecStart=/usr/bin/env node scripts/serve.cjs
 Restart=on-failure
 RestartSec=2
 

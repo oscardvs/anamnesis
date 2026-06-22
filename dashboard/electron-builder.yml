@@ -9,10 +9,12 @@ files:
   - ".next/standalone/**"
   - ".next/static/**"
   - public/**
-# Keep the native module unpacked so the spawned Node process can load the .node.
-asarUnpack:
-  - "**/better-sqlite3/**"
-afterPack: scripts/afterPack.js
+# Ship plain files (no asar). The standalone server is spawned as a child Node
+# process and loads a native .node from .next/standalone/node_modules; asar
+# packing makes that path fragile, so disable it. afterPack then overwrites the
+# real .node files with the Electron-ABI build.
+asar: false
+afterPack: scripts/afterPack.cjs
 linux:
   maintainer: Oscar Devos <oscar.devos02@gmail.com>
   target:

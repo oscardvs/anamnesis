@@ -48,3 +48,10 @@ laptop as an installable PWA.
 cd ~/anamnesis/dashboard && git pull && npm run build && \
   systemctl --user restart anamnesis-dashboard
 ```
+
+## Security
+
+The server binds `127.0.0.1` only (`scripts/serve.cjs` forces `HOSTNAME=127.0.0.1`),
+so it is never on your LAN or the public internet. The only off-machine access is
+`tailscale serve` (tailnet-only, authenticated by your tailnet). Do not use
+`tailscale funnel`, which would expose it publicly.

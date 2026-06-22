@@ -4,7 +4,11 @@ import { connect, createServer } from "node:net";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 
-/** Ask the OS for an available ephemeral port. */
+/**
+ * Ask the OS for an available ephemeral port. Small TOCTOU window: the port is
+ * released on close and the caller re-binds it, so another process could grab
+ * it in between. Acceptable on a single-user desktop.
+ */
 export function getFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = createServer();
@@ -48,13 +52,9 @@ export function waitForPort(port: number, timeoutMs: number): Promise<void> {
  */
 export function buildServerEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const home = homedir();
-  const extra = [
-    join(home, ".local", "bin"),
-    "/usr/local/bin",
-    "/usr/bin",
-    "/bin",
-    join(home, ".nvm", "current", "bin"),
-  ];
+  // Where uv and git typically live. The spawned server runs under Electron's
+  // own Node (ELECTRON_RUN_AS_NODE), so node itself does not need to be on PATH.
+  const extra = [join(home, ".local", "bin"), "/usr/local/bin", "/usr/bin", "/bin"];
   const existing = base.PATH ? base.PATH.split(delimiter) : [];
   const merged = [...new Set([...existing, ...extra])].filter(Boolean);
   return { ...base, PATH: merged.join(delimiter) };
