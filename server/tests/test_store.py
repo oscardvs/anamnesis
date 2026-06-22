@@ -362,3 +362,30 @@ def test_open_migrates_old_index_db(tmp_path):
     assert row is not None and row["prov_source"] == "human"  # reindexed with defaults
     assert store._db.execute("PRAGMA user_version").fetchone()[0] == 1
     store.close()
+
+
+def test_superseded_ids_returns_referenced_ids(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    old = store.write(type="semantic", title="old", body="x")
+    store.write(type="semantic", title="new", body="y", supersedes=old.id)
+    assert store.superseded_ids() == {old.id}
+    store.close()
+
+
+def test_superseded_ids_empty_when_none(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    store.write(type="semantic", title="a", body="x")
+    assert store.superseded_ids() == set()
+    store.close()
+
+
+def test_search_excludes_superseded_but_list_includes(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    old = store.write(type="semantic", title="alpha widget", body="the widget facts")
+    store.write(
+        type="semantic", title="alpha widget v2", body="the widget facts again", supersedes=old.id
+    )
+    hit_ids = {m.id for m in store.search("widget", k=8)}
+    assert old.id not in hit_ids  # superseded hidden from recall
+    assert old.id in {m.id for m in store.list()}  # but still browsable
+    store.close()

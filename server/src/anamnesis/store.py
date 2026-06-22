@@ -298,6 +298,10 @@ class MemoryStore:
         if scope is not None:
             sql.append("AND m.scope = ?")
             params.append(scope)
+        sql.append(
+            "AND m.id NOT IN "
+            "(SELECT supersedes FROM memories WHERE supersedes IS NOT NULL AND supersedes <> '')"
+        )
         sql.append("ORDER BY bm25(memories_fts), m.updated_at DESC LIMIT ?")
         params.append(k)
         rows = self._db.execute(" ".join(sql), params).fetchall()
@@ -358,6 +362,13 @@ class MemoryStore:
         base = self._dir_for_scope(row["scope"])
         text = (base / row["body_path"]).read_text(encoding="utf-8")
         return _deserialize(text)
+
+    def superseded_ids(self) -> set[str]:
+        """Ids of notes replaced by another note's ``supersedes`` (hidden from recall)."""
+        rows = self._db.execute(
+            "SELECT supersedes FROM memories WHERE supersedes IS NOT NULL AND supersedes <> ''"
+        ).fetchall()
+        return {r["supersedes"] for r in rows}
 
     def reindex(self) -> int:
         """Rebuild the entire SQLite index from the markdown files. Returns count."""
