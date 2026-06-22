@@ -178,3 +178,37 @@ def test_not_trivial_when_files_touched():
 def test_not_trivial_real_prompt():
     s = ParsedSession(first_prompt="How do I wire the sync hook?", last_outcome="")
     assert is_trivial_session(s) is False
+
+
+def test_write_episodic_skips_trivial_session(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    mem = write_episodic(
+        store,
+        ParsedSession(),  # empty -> gated
+        summarizer=HeuristicSummarizer(),
+        project="proj",
+        source="session-end",
+        machine_id="m",
+    )
+    assert mem is None
+    assert store.list(project="proj") == []
+
+
+class _SkipSummarizer:
+    def summarize(self, session):
+        return None  # passed the gate but self-skips
+
+
+def test_write_episodic_honors_summarizer_self_skip(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    session = ParsedSession(first_prompt="Real ask that passes the gate", last_outcome="x" * 50)
+    mem = write_episodic(
+        store,
+        session,
+        summarizer=_SkipSummarizer(),
+        project="proj",
+        source="session-end",
+        machine_id="m",
+    )
+    assert mem is None
+    assert store.list(project="proj") == []

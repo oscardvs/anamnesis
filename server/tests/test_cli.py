@@ -97,6 +97,34 @@ def test_cmd_capture_writes_episodic_note_no_sync(tmp_path, monkeypatch, capsys)
     assert "session-end" in notes[0].tags
 
 
+def test_cmd_capture_skips_trivial_session(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    transcript = tmp_path / "empty.jsonl"
+    transcript.write_text("", encoding="utf-8")
+
+    args = build_parser().parse_args(
+        [
+            "capture",
+            "--transcript",
+            str(transcript),
+            "--project",
+            "p",
+            "--source",
+            "session-end",
+            "--no-sync",
+        ]
+    )
+    rc = cmd_capture(args, {})
+    assert rc == 0
+    assert "skipped trivial session" in capsys.readouterr().out
+
+    store = MemoryStore(root=tmp_path / "store")
+    notes = store.list(project="p", type="episodic")
+    store.close()
+    assert notes == []
+
+
 def test_resolve_command_parses_reindex():
     assert resolve_command(["reindex"]) == "reindex"
 

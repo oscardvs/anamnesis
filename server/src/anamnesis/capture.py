@@ -147,15 +147,15 @@ def is_trivial_session(session: ParsedSession) -> bool:
 
 
 class Summarizer(Protocol):
-    """Turns a parsed session into an episodic note (title, body)."""
+    """Turns a parsed session into an episodic note, or ``None`` to skip it."""
 
-    def summarize(self, session: ParsedSession) -> tuple[str, str]: ...
+    def summarize(self, session: ParsedSession) -> tuple[str, str] | None: ...
 
 
 class HeuristicSummarizer:
     """Deterministic v0 summary: the ask, the branch, files touched, the outcome."""
 
-    def summarize(self, session: ParsedSession) -> tuple[str, str]:
+    def summarize(self, session: ParsedSession) -> tuple[str, str] | None:
         first = session.first_prompt
         title = first.splitlines()[0][:80] if first else "Session summary"
         parts = [f"**Ask:** {_clip(first) or '(no user prompt captured)'}", ""]
@@ -195,13 +195,21 @@ def write_episodic(
     project: str,
     source: str,
     machine_id: str,
-) -> Memory:
-    """Build and persist the episodic note. No sync; the caller orchestrates that.
+) -> Memory | None:
+    """Build and persist the episodic note, or return ``None`` to write nothing.
+
+    ``None`` happens two ways: the deterministic gate trips (trivial session), or
+    the summarizer self-skips. No sync; the caller orchestrates that.
 
     ``source`` (``session-end`` or ``precompact``) is recorded as a tag for now; a
     first-class ``prov_source`` column is a backlog follow-up (architecture section 8).
     """
-    title, body = summarizer.summarize(session)
+    if is_trivial_session(session):
+        return None
+    result = summarizer.summarize(session)
+    if result is None:
+        return None
+    title, body = result
     return store.write(
         type="episodic",
         title=title,
