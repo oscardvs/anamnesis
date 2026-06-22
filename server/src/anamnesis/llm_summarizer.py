@@ -17,7 +17,7 @@ import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from anamnesis.capture import HeuristicSummarizer, ParsedSession, Summarizer
+from anamnesis.capture import HeuristicSummarizer, ParsedSession, Summarizer, SummaryResult
 from anamnesis.redact import redact
 
 LLMClient = Callable[[str, str], str]
@@ -126,7 +126,7 @@ class LLMSummarizer:
     tool_result_cap: int = _DEFAULT_TOOL_RESULT_CAP
     fallback: Summarizer = field(default_factory=HeuristicSummarizer)
 
-    def summarize(self, session: ParsedSession) -> tuple[str, str] | None:
+    def summarize(self, session: ParsedSession) -> SummaryResult | None:
         try:
             transcript = _truncate_tool_results(session.raw, self.tool_result_cap)
             content = _window(redact(transcript), self.max_chars)
@@ -134,7 +134,7 @@ class LLMSummarizer:
             skip, title, body = _parse_summary(text)
             if skip:
                 return None
-            return title, f"{body}\n\n_summarized by {self.model_label}_"
+            return SummaryResult(title=title, body=body, prov_model=self.model_label)
         except Exception as exc:  # noqa: BLE001 - capture must never break teardown
             print(f"capture: llm summary failed ({exc}); using heuristic", file=sys.stderr)
             return self.fallback.summarize(session)

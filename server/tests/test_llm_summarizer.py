@@ -64,7 +64,7 @@ def test_truncate_tool_results_caps_blob():
     assert "truncated" in out
 
 
-def test_summarize_happy_path_adds_footer():
+def test_summarize_happy_path_records_prov_model():
     summ = LLMSummarizer(
         client=_client_returning('{"skip": false, "title": "Did X", "body": "Built X."}'),
         model_label="deepseek/test-model",
@@ -72,10 +72,10 @@ def test_summarize_happy_path_adds_footer():
     session = ParsedSession(first_prompt="do x", last_outcome="done", raw=_raw_with_prompt())
     result = summ.summarize(session)
     assert result is not None
-    title, body = result
-    assert title == "Did X"
-    assert "Built X." in body
-    assert "deepseek/test-model" in body
+    assert result.title == "Did X"
+    assert "Built X." in result.body
+    assert result.prov_model == "deepseek/test-model"
+    assert "_summarized by" not in result.body  # footer removed; prov_model carries it
 
 
 def test_summarize_self_skip_returns_none():
@@ -96,9 +96,8 @@ def test_summarize_falls_back_to_heuristic_on_client_error():
     )
     result = summ.summarize(session)
     assert result is not None
-    title, body = result
-    assert "**Ask:** Add a CLI" in body  # heuristic body, not the LLM footer
-    assert "deepseek/test-model" not in body
+    assert "**Ask:** Add a CLI" in result.body  # heuristic body
+    assert result.prov_model == ""  # honest: a fallback note is heuristic
 
 
 def test_summarize_falls_back_on_unparseable_json():
@@ -111,8 +110,8 @@ def test_summarize_falls_back_on_unparseable_json():
     )
     result = summ.summarize(session)
     assert result is not None
-    _, body = result
-    assert "**Ask:** Add a CLI" in body
+    assert "**Ask:** Add a CLI" in result.body
+    assert result.prov_model == ""
 
 
 def test_summarize_redacts_before_sending():
