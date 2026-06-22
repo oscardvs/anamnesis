@@ -252,3 +252,17 @@ def test_decode_slug_reconstructs_underscored_directories(tmp_path):
 def test_decode_slug_degrades_to_plain_split_for_missing_paths(tmp_path):
     decoded = _decode_slug("-home-user-myrepo", root=tmp_path)
     assert decoded == tmp_path / "home" / "user" / "myrepo"
+
+
+def test_import_stamps_import_provenance(tmp_path):
+    claude_home = tmp_path / "claude"
+    store = MemoryStore(root=tmp_path / "store")
+    proj = _native_project(claude_home, "-home-user-myrepo", cwd="/home/user/myrepo")
+    (proj / "memory" / "a-fact.md").write_text(
+        _native("a-fact", "A durable fact", "reference", "The sky is blue."), encoding="utf-8"
+    )
+    import_native(
+        store, claude_home=claude_home, machine_id="m1", resolve_project=lambda cwd: "myrepo"
+    )
+    mem = store.list()[0]
+    assert mem.prov_source == "import"

@@ -5,8 +5,11 @@ index derived from them. These tests pin the round-trip, search, and reindex
 behavior the MCP server and importer will build on.
 """
 
+import sqlite3
 import threading
 from pathlib import Path
+
+import pytest
 
 from anamnesis.store import MemoryStore
 
@@ -253,3 +256,109 @@ def test_stats_reports_counts_by_scope(tmp_path):
         type="semantic", title="c", body="d", project="p", machine_id="m", scope="machine-local"
     )
     assert store.stats().by_scope == {"portable": 1, "machine-local": 1}
+
+
+from anamnesis.store import Memory, _deserialize, _serialize  # noqa: E402
+
+
+def test_serialize_roundtrip_preserves_provenance():
+    mem = Memory(
+        id="x",
+        type="semantic",
+        title="t",
+        body="b",
+        prov_source="reflection",
+        prov_model="deepseek/m",
+        prov_session="s1",
+        confidence=0.5,
+        supersedes="old-id",
+    )
+    back = _deserialize(_serialize(mem))
+    assert back.prov_source == "reflection"
+    assert back.prov_model == "deepseek/m"
+    assert back.prov_session == "s1"
+    assert back.confidence == 0.5
+    assert back.supersedes == "old-id"
+
+
+def test_deserialize_defaults_missing_provenance():
+    text = (
+        "---\n"
+        "id: a\ntype: semantic\ntitle: t\nproject: global\nmachine_id: m\n"
+        "scope: portable\n"
+        "created_at: '2026-01-01T00:00:00+00:00'\n"
+        "updated_at: '2026-01-01T00:00:00+00:00'\n"
+        "tags: []\n"
+        "---\nbody\n"
+    )
+    mem = _deserialize(text)
+    assert mem.prov_source == "human"
+    assert mem.confidence == 1.0
+    assert mem.prov_model == ""
+    assert mem.supersedes == ""
+
+
+def test_write_indexes_provenance(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    mem = store.write(
+        type="semantic", title="t", body="b", prov_source="reflection", confidence=0.3
+    )
+    row = store._db.execute(
+        "SELECT prov_source, confidence FROM memories WHERE id = ?", (mem.id,)
+    ).fetchone()
+    assert row["prov_source"] == "reflection"
+    assert row["confidence"] == 0.3
+    assert store.get(mem.id).prov_source == "reflection"
+    store.close()
+
+
+def test_write_rejects_invalid_prov_source(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    with pytest.raises(sqlite3.IntegrityError):
+        store.write(type="semantic", title="t", body="b", prov_source="bogus")
+    store.close()
+
+
+def test_failed_write_leaves_no_orphan_markdown(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    with pytest.raises(sqlite3.IntegrityError):
+        store.write(type="semantic", title="t", body="b", prov_source="bogus")
+    # no orphan left behind: reindex succeeds and finds nothing
+    assert store.reindex() == 0
+    assert list(store.memory_dir.rglob("*.md")) == []
+    store.close()
+
+
+_OLD_SCHEMA = """
+CREATE TABLE memories (id TEXT PRIMARY KEY, type TEXT, title TEXT, body_path TEXT,
+  project TEXT, machine_id TEXT, scope TEXT, created_at TEXT, updated_at TEXT);
+CREATE TABLE memory_tags (memory_id TEXT, tag TEXT, PRIMARY KEY (memory_id, tag));
+CREATE VIRTUAL TABLE memories_fts USING fts5(id UNINDEXED, title, body, tags);
+"""
+
+_OLD_NOTE = (
+    "---\n"
+    "id: n1\ntype: semantic\ntitle: Old note\nproject: global\nmachine_id: m\n"
+    "scope: portable\n"
+    "created_at: '2026-01-01T00:00:00+00:00'\n"
+    "updated_at: '2026-01-01T00:00:00+00:00'\n"
+    "tags: []\n"
+    "---\nbody\n"
+)
+
+
+def test_open_migrates_old_index_db(tmp_path):
+    # A store dir with a pre-B2a markdown note and an old-schema index.db at user_version 0.
+    (tmp_path / "memory" / "semantic").mkdir(parents=True)
+    (tmp_path / "memory" / "semantic" / "n1.md").write_text(_OLD_NOTE, encoding="utf-8")
+    db = sqlite3.connect(tmp_path / "index.db")
+    db.executescript(_OLD_SCHEMA)
+    db.execute("PRAGMA user_version = 0")
+    db.commit()
+    db.close()
+
+    store = MemoryStore(root=tmp_path)  # opening triggers the migration
+    row = store._db.execute("SELECT prov_source FROM memories WHERE id = 'n1'").fetchone()
+    assert row is not None and row["prov_source"] == "human"  # reindexed with defaults
+    assert store._db.execute("PRAGMA user_version").fetchone()[0] == 1
+    store.close()

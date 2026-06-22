@@ -21,6 +21,7 @@ from anamnesis.inject import render_inject, resolve_project_key, select_inject
 from anamnesis.migrate import apply_migration, plan_migration
 from anamnesis.native_import import ImportResult, import_native
 from anamnesis.onboard import InitOptions, run_init
+from anamnesis.provenance import apply_backfill, plan_backfill
 from anamnesis.store import MemoryStore
 from anamnesis.sync import GitSyncBackend, SyncResult
 
@@ -58,6 +59,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pded.add_argument("--apply", action="store_true")
     pded.add_argument("--no-sync", action="store_true")
+    pbf = sub.add_parser(
+        "backfill-provenance",
+        help="infer prov_source from tags and rewrite front-matter (dry-run unless --apply)",
+    )
+    pbf.add_argument("--apply", action="store_true")
+    pbf.add_argument("--no-sync", action="store_true")
     pin = sub.add_parser(
         "init", help="configure Claude Code (MCP + hooks), set up the store, and first sync"
     )
@@ -236,6 +243,35 @@ def cmd_dedup(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_backfill_provenance(args: argparse.Namespace) -> int:
+    """Infer prov_source from tags and rewrite front-matter. Dry-run unless --apply."""
+    store = MemoryStore(resolve_home())
+    try:
+        dirs = [store.memory_dir, store.local_dir]
+        if not args.apply:
+            changes = plan_backfill(dirs)
+            for c in changes:
+                print(
+                    f"backfill: {c.note_id} [{c.project}]"
+                    f" -> prov_source={c.prov_source} {c.title!r}"
+                )
+            print(f"backfill: {len(changes)} note(s) would change (dry-run; pass --apply)")
+            return 0
+        changes = apply_backfill(dirs)
+        if args.no_sync:
+            store.reindex()
+            print(f"backfill: rewrote {len(changes)} note(s); reindexed (no sync)")
+        else:
+            result = _run_sync(store, _backend(store))
+            print(
+                f"backfill: rewrote {len(changes)} note(s); "
+                f"synced (pushed={result.pushed} pulled={result.pulled})"
+            )
+    finally:
+        store.close()
+    return 0
+
+
 def cmd_import(args: argparse.Namespace) -> int:
     """Import Claude Code's native memory, then sync unless --no-sync.
 
@@ -348,6 +384,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_migrate(args)
     if command == "dedup":
         return cmd_dedup(args)
+    if command == "backfill-provenance":
+        return cmd_backfill_provenance(args)
     if command == "import":
         return cmd_import(args)
     if command == "init":
