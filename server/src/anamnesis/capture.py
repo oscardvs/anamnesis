@@ -214,8 +214,8 @@ def write_episodic(
     ``None`` happens two ways: the deterministic gate trips (trivial session), or
     the summarizer self-skips. No sync; the caller orchestrates that.
 
-    ``source`` (``session-end`` or ``precompact``) is recorded as a tag for now; a
-    first-class ``prov_source`` column is a backlog follow-up (architecture section 8).
+    ``source`` (``session-end`` or ``precompact``) is recorded as a tag; both map to
+    the ``session-end`` ``prov_source`` stamped on the note (architecture section 8).
     """
     if is_trivial_session(session):
         return None
