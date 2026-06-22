@@ -22,6 +22,12 @@ from anamnesis.migrate import apply_migration, plan_migration
 from anamnesis.native_import import ImportResult, import_native
 from anamnesis.onboard import InitOptions, run_init
 from anamnesis.provenance import apply_backfill, plan_backfill
+from anamnesis.reflect import (
+    apply_reflection,
+    make_reflector,
+    resolve_min_episodics,
+    select_unreflected,
+)
 from anamnesis.store import MemoryStore
 from anamnesis.sync import GitSyncBackend, SyncResult
 
@@ -65,6 +71,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pbf.add_argument("--apply", action="store_true")
     pbf.add_argument("--no-sync", action="store_true")
+    pref = sub.add_parser(
+        "reflect",
+        help="distill a project's episodic notes into durable notes (dry-run unless --apply)",
+    )
+    pref.add_argument("--project", default=None)
+    pref.add_argument("--apply", action="store_true")
+    pref.add_argument("--no-sync", action="store_true")
     pin = sub.add_parser(
         "init", help="configure Claude Code (MCP + hooks), set up the store, and first sync"
     )
@@ -272,6 +285,63 @@ def cmd_backfill_provenance(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_reflect(args: argparse.Namespace) -> int:
+    """Distill episodic notes into durable reflection notes. Dry-run unless --apply."""
+    store = MemoryStore(resolve_home())
+    try:
+        min_ep = resolve_min_episodics()
+        if args.project:
+            projects = [args.project]
+        else:
+            projects = sorted({m.project for m in store.list(type="episodic", scope="portable")})
+        reflector = None
+        if args.apply:
+            reflector = make_reflector()
+            if reflector is None:
+                print(
+                    "reflect: no reflection provider configured "
+                    "(set ANAMNESIS_REFLECTION_PROVIDER + model/base-url/key)"
+                )
+                return 0
+        wrote = 0
+        for project in projects:
+            unreflected = select_unreflected(store, project)
+            if len(unreflected) < min_ep:
+                continue
+            if not args.apply:
+                print(
+                    f"reflect: {project}: {len(unreflected)} episodic(s) would be distilled "
+                    "(dry-run; pass --apply)"
+                )
+                continue
+            assert reflector is not None
+            try:
+                result = apply_reflection(
+                    store, project, reflector, machine_id=resolve_machine_id()
+                )
+            except Exception as exc:  # noqa: BLE001 - one project must not kill the run
+                print(f"reflect: {project}: failed ({exc}); skipped")
+                continue
+            wrote += result.notes_written
+            print(
+                f"reflect: {project}: distilled {result.episodics} episodic(s) "
+                f"-> {result.notes_written} note(s)"
+            )
+        if args.apply and wrote:
+            if args.no_sync:
+                store.reindex()
+                print(f"reflect: wrote {wrote} note(s); reindexed (no sync)")
+            else:
+                synced = _run_sync(store, _backend(store))
+                print(
+                    f"reflect: wrote {wrote} note(s); "
+                    f"synced (pushed={synced.pushed} pulled={synced.pulled})"
+                )
+    finally:
+        store.close()
+    return 0
+
+
 def cmd_import(args: argparse.Namespace) -> int:
     """Import Claude Code's native memory, then sync unless --no-sync.
 
@@ -386,6 +456,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_dedup(args)
     if command == "backfill-provenance":
         return cmd_backfill_provenance(args)
+    if command == "reflect":
+        return cmd_reflect(args)
     if command == "import":
         return cmd_import(args)
     if command == "init":

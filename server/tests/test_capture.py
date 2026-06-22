@@ -107,19 +107,22 @@ def test_heuristic_summarizer_builds_title_and_body():
         files_touched=["cli.py", "inject.py"],
         git_branch="main",
     )
-    title, body = HeuristicSummarizer().summarize(s)
-    assert title == "Add a CLI"  # first line of the ask, trimmed
-    assert "**Ask:** Add a CLI" in body
-    assert "**Branch:** main" in body
-    assert "**Files touched (2):**" in body
-    assert "- cli.py" in body
-    assert "**Outcome:** Done, shipped" in body
+    r = HeuristicSummarizer().summarize(s)
+    assert r is not None
+    assert r.title == "Add a CLI"
+    assert "**Ask:** Add a CLI" in r.body
+    assert "**Branch:** main" in r.body
+    assert "**Files touched (2):**" in r.body
+    assert "- cli.py" in r.body
+    assert "**Outcome:** Done, shipped" in r.body
+    assert r.prov_model == ""
 
 
 def test_heuristic_summarizer_handles_empty_session():
-    title, body = HeuristicSummarizer().summarize(ParsedSession())
-    assert title == "Session summary"
-    assert "(no user prompt captured)" in body
+    r = HeuristicSummarizer().summarize(ParsedSession())
+    assert r is not None
+    assert r.title == "Session summary"
+    assert "(no user prompt captured)" in r.body
 
 
 def test_resolve_summarizer_defaults_to_heuristic(monkeypatch):
@@ -212,6 +215,21 @@ def test_write_episodic_honors_summarizer_self_skip(tmp_path):
     )
     assert mem is None
     assert store.list(project="proj") == []
+
+
+def test_write_episodic_stamps_empty_prov_model_for_heuristic(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    session = ParsedSession(first_prompt="Do a thing", last_outcome="Did it")
+    mem = write_episodic(
+        store,
+        session,
+        summarizer=HeuristicSummarizer(),
+        project="proj",
+        source="session-end",
+        machine_id="m",
+    )
+    assert mem is not None
+    assert mem.prov_model == ""
 
 
 def test_write_episodic_stamps_session_provenance(tmp_path):

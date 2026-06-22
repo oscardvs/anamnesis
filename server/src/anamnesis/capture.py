@@ -146,16 +146,25 @@ def is_trivial_session(session: ParsedSession) -> bool:
     return False
 
 
-class Summarizer(Protocol):
-    """Turns a parsed session into an episodic note, or ``None`` to skip it."""
+@dataclass
+class SummaryResult:
+    """An episodic note plus which model produced it (empty for the heuristic)."""
 
-    def summarize(self, session: ParsedSession) -> tuple[str, str] | None: ...
+    title: str
+    body: str
+    prov_model: str = ""
+
+
+class Summarizer(Protocol):
+    """Turns a parsed session into a summary, or ``None`` to skip it."""
+
+    def summarize(self, session: ParsedSession) -> SummaryResult | None: ...
 
 
 class HeuristicSummarizer:
     """Deterministic v0 summary: the ask, the branch, files touched, the outcome."""
 
-    def summarize(self, session: ParsedSession) -> tuple[str, str] | None:
+    def summarize(self, session: ParsedSession) -> SummaryResult | None:
         first = session.first_prompt
         title = first.splitlines()[0][:80] if first else "Session summary"
         parts = [f"**Ask:** {_clip(first) or '(no user prompt captured)'}", ""]
@@ -167,7 +176,7 @@ class HeuristicSummarizer:
         parts.append("")
         outcome = _clip(session.last_outcome) or "(no assistant output captured)"
         parts.append(f"**Outcome:** {outcome}")
-        return title, "\n".join(parts)
+        return SummaryResult(title=title, body="\n".join(parts))
 
 
 def _make_heuristic() -> Summarizer:
@@ -222,14 +231,14 @@ def write_episodic(
     result = summarizer.summarize(session)
     if result is None:
         return None
-    title, body = result
     return store.write(
         type="episodic",
-        title=title,
-        body=body,
+        title=result.title,
+        body=result.body,
         project=project,
         machine_id=machine_id,
         tags=["session", source],
         prov_source="session-end",
         prov_session=session.session_id,
+        prov_model=result.prov_model,
     )

@@ -9,6 +9,7 @@ from anamnesis.cli import (
     cmd_capture,
     cmd_inject,
     cmd_migrate,
+    cmd_reflect,
     cmd_reindex,
     cmd_status,
     main,
@@ -413,3 +414,66 @@ def test_cmd_backfill_provenance_dry_run_then_apply(tmp_path, monkeypatch, capsy
     store2 = MemoryStore(root=tmp_path / "store")
     assert store2.get(mem.id).prov_source == "session-end"
     store2.close()
+
+
+def _seed_episodics(store, project, n):
+    for i in range(n):
+        store.write(
+            type="episodic", title=f"s{i}", body="did work", project=project, tags=["session"]
+        )
+
+
+def test_cmd_reflect_dry_run_respects_threshold(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.setenv("ANAMNESIS_REFLECT_MIN_EPISODICS", "5")
+    store = MemoryStore(root=tmp_path / "store")
+    _seed_episodics(store, "big", 6)
+    _seed_episodics(store, "small", 2)
+    store.close()
+
+    args = build_parser().parse_args(["reflect"])
+    cmd_reflect(args)
+    out = capsys.readouterr().out
+    assert "big: 6 episodic(s) would be distilled" in out
+    assert "small" not in out  # below threshold
+
+
+def test_cmd_reflect_apply_unconfigured_reports(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.setenv("ANAMNESIS_REFLECT_MIN_EPISODICS", "1")
+    monkeypatch.delenv("ANAMNESIS_REFLECTION_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    store = MemoryStore(root=tmp_path / "store")
+    _seed_episodics(store, "p", 2)
+    store.close()
+
+    args = build_parser().parse_args(["reflect", "--apply", "--no-sync"])
+    cmd_reflect(args)
+    assert "no reflection provider configured" in capsys.readouterr().out
+
+
+def test_cmd_reflect_apply_with_fake_reflector(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.setenv("ANAMNESIS_REFLECT_MIN_EPISODICS", "1")
+    store = MemoryStore(root=tmp_path / "store")
+    _seed_episodics(store, "p", 2)
+    store.close()
+
+    from anamnesis.reflect import Reflector
+
+    def fake():
+        return Reflector(
+            client=lambda system, user: '[{"type":"semantic","title":"T","body":"B"}]',
+            model_label="deepseek/test",
+        )
+
+    monkeypatch.setattr("anamnesis.cli.make_reflector", fake)
+    args = build_parser().parse_args(["reflect", "--apply", "--no-sync"])
+    cmd_reflect(args)
+    assert "distilled 2 episodic(s) -> 1 note(s)" in capsys.readouterr().out
+
+    store = MemoryStore(root=tmp_path / "store")
+    notes = store.list(project="p", type="semantic")
+    assert len(notes) == 1 and notes[0].prov_source == "reflection"
+    store.close()
