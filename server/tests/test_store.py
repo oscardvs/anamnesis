@@ -319,6 +319,16 @@ def test_write_rejects_invalid_prov_source(tmp_path):
     store.close()
 
 
+def test_failed_write_leaves_no_orphan_markdown(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    with pytest.raises(sqlite3.IntegrityError):
+        store.write(type="semantic", title="t", body="b", prov_source="bogus")
+    # no orphan left behind: reindex succeeds and finds nothing
+    assert store.reindex() == 0
+    assert list(store.memory_dir.rglob("*.md")) == []
+    store.close()
+
+
 _OLD_SCHEMA = """
 CREATE TABLE memories (id TEXT PRIMARY KEY, type TEXT, title TEXT, body_path TEXT,
   project TEXT, machine_id TEXT, scope TEXT, created_at TEXT, updated_at TEXT);

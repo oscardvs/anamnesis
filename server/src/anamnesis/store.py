@@ -243,7 +243,11 @@ class MemoryStore:
         abs_path = self._dir_for_scope(mem.scope) / rel_path
         abs_path.parent.mkdir(parents=True, exist_ok=True)
         abs_path.write_text(_serialize(mem), encoding="utf-8")
-        self._index(mem, rel_path)
+        try:
+            self._index(mem, rel_path)
+        except Exception:
+            abs_path.unlink(missing_ok=True)
+            raise
         self._db.commit()
         return mem
 
@@ -258,7 +262,11 @@ class MemoryStore:
         abs_path = self._dir_for_scope(mem.scope) / rel_path
         abs_path.parent.mkdir(parents=True, exist_ok=True)
         abs_path.write_text(_serialize(mem), encoding="utf-8")
-        self._index(mem, rel_path)
+        try:
+            self._index(mem, rel_path)
+        except Exception:
+            abs_path.unlink(missing_ok=True)
+            raise
         self._db.commit()
         return mem
 
