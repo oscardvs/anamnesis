@@ -1,0 +1,28 @@
+appId: net.anamnesis.dashboard
+productName: Anamnesis
+directories:
+  output: dist
+  buildResources: build
+# Bundle the Electron entry and the standalone server (with its copied assets).
+files:
+  - dist-electron/**
+  - ".next/standalone/**"
+  - ".next/static/**"
+  - public/**
+# Keep the native module unpacked so the spawned Node process can load the .node.
+asarUnpack:
+  - "**/better-sqlite3/**"
+afterPack: scripts/afterPack.js
+linux:
+  maintainer: Oscar Devos <oscar.devos02@gmail.com>
+  target:
+    - AppImage
+    - deb
+  category: Utility
+mac:
+  target:
+    - dmg
+  identity: null # unsigned for now
+win:
+  target:
+    - nsis

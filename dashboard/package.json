@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "main": "dist-electron/main.js",
+  "homepage": "https://github.com/oscardvs/anamnesis",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -15,7 +16,7 @@
     "icons": "node scripts/make-icons.mjs",
     "build:electron": "node scripts/build-electron.mjs",
     "desktop:dev": "npm run build && npm run build:electron && electron dist-electron/main.js",
-    "desktop:build": "npm run build && npm run build:electron && electron-rebuild -f -w better-sqlite3 && electron-builder"
+    "desktop:build": "npm run build && npm run build:electron && electron-rebuild -f -w better-sqlite3 && electron-builder && npm rebuild better-sqlite3"
   },
   "dependencies": {
     "better-sqlite3": "12.9.0",
@@ -44,7 +45,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "babel-plugin-react-compiler": "1.0.0",
-    "electron": "^42.0.0",
+    "electron": "^34.0.0",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.0",
     "eslint": "^9",
