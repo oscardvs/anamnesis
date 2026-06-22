@@ -5,6 +5,7 @@ import pytest
 
 from anamnesis.cli import (
     build_parser,
+    cmd_backfill_provenance,
     cmd_capture,
     cmd_inject,
     cmd_migrate,
@@ -392,3 +393,23 @@ def test_main_dispatches_dedup_apply(tmp_path, monkeypatch, capsys):
     total = store.stats().total
     store.close()
     assert total == 1
+
+
+def test_cmd_backfill_provenance_dry_run_then_apply(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    store = MemoryStore(root=tmp_path / "store")
+    mem = store.write(type="episodic", title="t", body="b", tags=["session", "session-end"])
+    store.close()  # written as default human; tags say session
+
+    dry = build_parser().parse_args(["backfill-provenance"])
+    cmd_backfill_provenance(dry)
+    assert "would change" in capsys.readouterr().out
+
+    apply = build_parser().parse_args(["backfill-provenance", "--apply", "--no-sync"])
+    cmd_backfill_provenance(apply)
+    assert "rewrote 1" in capsys.readouterr().out
+
+    store2 = MemoryStore(root=tmp_path / "store")
+    assert store2.get(mem.id).prov_source == "session-end"
+    store2.close()
