@@ -174,7 +174,20 @@ def _make_heuristic() -> Summarizer:
     return HeuristicSummarizer()
 
 
-_SUMMARIZERS: dict[str, Callable[[], Summarizer]] = {"heuristic": _make_heuristic}
+def _make_llm() -> Summarizer:
+    # Lazy import breaks the capture <-> llm_summarizer cycle and keeps the base
+    # (hook) install from importing the LLM path unless a provider is configured.
+    from anamnesis.llm_summarizer import make_llm_summarizer
+
+    return make_llm_summarizer()
+
+
+_SUMMARIZERS: dict[str, Callable[[], Summarizer]] = {
+    "heuristic": _make_heuristic,
+    "deepseek": _make_llm,
+    "openai": _make_llm,
+    "local": _make_llm,
+}
 
 
 def resolve_summarizer() -> Summarizer:

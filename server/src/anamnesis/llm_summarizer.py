@@ -11,7 +11,9 @@ no extra dependency. Tests inject a fake client and never touch the network.
 from __future__ import annotations
 
 import json
+import os
 import sys
+import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -136,3 +138,91 @@ class LLMSummarizer:
         except Exception as exc:  # noqa: BLE001 - capture must never break teardown
             print(f"capture: llm summary failed ({exc}); using heuristic", file=sys.stderr)
             return self.fallback.summarize(session)
+
+
+@dataclass
+class ReflectionConfig:
+    provider: str
+    model: str
+    base_url: str
+    api_key: str
+    timeout: float
+    max_tokens: int
+
+
+def _env(*names: str) -> str:
+    for name in names:
+        value = os.environ.get(name)
+        if value:
+            return value
+    return ""
+
+
+def resolve_reflection_config() -> ReflectionConfig:
+    """Read the reflection config from the environment (machine-local, never synced)."""
+    provider = (os.environ.get("ANAMNESIS_REFLECTION_PROVIDER") or "heuristic").lower()
+    try:
+        timeout = float(os.environ.get("ANAMNESIS_REFLECTION_TIMEOUT", "30"))
+    except ValueError:
+        timeout = 30.0
+    try:
+        max_tokens = int(os.environ.get("ANAMNESIS_REFLECTION_MAX_TOKENS", "120000"))
+    except ValueError:
+        max_tokens = 120_000
+    return ReflectionConfig(
+        provider=provider,
+        model=_env("ANAMNESIS_REFLECTION_MODEL"),
+        base_url=_env("ANAMNESIS_REFLECTION_BASE_URL"),
+        api_key=_env(
+            "ANAMNESIS_REFLECTION_API_KEY",
+            "DEEPSEEK_API_KEY",
+            "OPENAI_API_KEY",
+        ),
+        timeout=timeout,
+        max_tokens=max_tokens,
+    )
+
+
+def _http_client(base_url: str, api_key: str, model: str, timeout: float) -> LLMClient:
+    """A thin stdlib POST to an OpenAI-compatible chat/completions endpoint."""
+    url = base_url.rstrip("/") + "/chat/completions"
+
+    def call(system: str, user: str) -> str:
+        payload = json.dumps(
+            {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                "temperature": 0.2,
+                "stream": False,
+            }
+        ).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - configured URL
+            body = json.loads(resp.read().decode("utf-8"))
+        return str(body["choices"][0]["message"]["content"])
+
+    return call
+
+
+def make_llm_summarizer() -> Summarizer:
+    """Build an LLMSummarizer from config, or the heuristic if config is incomplete."""
+    cfg = resolve_reflection_config()
+    if not (cfg.model and cfg.base_url and cfg.api_key):
+        return HeuristicSummarizer()
+    client = _http_client(cfg.base_url, cfg.api_key, cfg.model, cfg.timeout)
+    return LLMSummarizer(
+        client=client,
+        model_label=f"{cfg.provider}/{cfg.model}",
+        max_chars=cfg.max_tokens * 4,
+    )

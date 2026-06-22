@@ -2,12 +2,14 @@ import json
 
 import pytest
 
-from anamnesis.capture import ParsedSession
+from anamnesis.capture import HeuristicSummarizer, ParsedSession, resolve_summarizer
 from anamnesis.llm_summarizer import (
     LLMSummarizer,
     _parse_summary,
     _truncate_tool_results,
     _window,
+    make_llm_summarizer,
+    resolve_reflection_config,
 )
 
 
@@ -125,3 +127,47 @@ def test_summarize_redacts_before_sending():
     summ.summarize(ParsedSession(first_prompt="x", last_outcome="y", raw=raw))
     assert "sk-ABCD1234abcd5678efgh" not in captured["user"]
     assert "[REDACTED]" in captured["user"]
+
+
+def _set_full_config(monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_REFLECTION_PROVIDER", "deepseek")
+    monkeypatch.setenv("ANAMNESIS_REFLECTION_MODEL", "deepseek-test")
+    monkeypatch.setenv("ANAMNESIS_REFLECTION_BASE_URL", "https://example.invalid")
+    monkeypatch.delenv("ANAMNESIS_REFLECTION_API_KEY", raising=False)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test-key")
+
+
+def _clear_keys(monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_REFLECTION_PROVIDER", "deepseek")
+    monkeypatch.delenv("ANAMNESIS_REFLECTION_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+
+def test_resolve_reflection_config_reads_env(monkeypatch):
+    _set_full_config(monkeypatch)
+    cfg = resolve_reflection_config()
+    assert cfg.provider == "deepseek"
+    assert cfg.model == "deepseek-test"
+    assert cfg.base_url == "https://example.invalid"
+    assert cfg.api_key == "sk-test-key"
+
+
+def test_make_llm_summarizer_falls_back_without_key(monkeypatch):
+    _clear_keys(monkeypatch)
+    assert isinstance(make_llm_summarizer(), HeuristicSummarizer)
+
+
+def test_make_llm_summarizer_builds_when_configured(monkeypatch):
+    _set_full_config(monkeypatch)
+    assert isinstance(make_llm_summarizer(), LLMSummarizer)
+
+
+def test_resolve_summarizer_deepseek_when_configured(monkeypatch):
+    _set_full_config(monkeypatch)
+    assert isinstance(resolve_summarizer(), LLMSummarizer)
+
+
+def test_resolve_summarizer_deepseek_falls_back_unconfigured(monkeypatch):
+    _clear_keys(monkeypatch)
+    assert isinstance(resolve_summarizer(), HeuristicSummarizer)
