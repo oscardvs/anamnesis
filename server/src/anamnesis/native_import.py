@@ -263,6 +263,7 @@ def import_native(
                         machine_id=machine_id,
                         scope="portable",
                         tags=tags,
+                        prov_source="import",
                         created_at=created_at,
                         updated_at=ts,
                     )
@@ -285,6 +286,7 @@ def import_native(
                     machine_id=machine_id,
                     scope="portable",
                     tags=tags,
+                    prov_source="import",
                     created_at=ts,
                     updated_at=ts,
                 )

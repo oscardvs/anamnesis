@@ -212,3 +212,19 @@ def test_write_episodic_honors_summarizer_self_skip(tmp_path):
     )
     assert mem is None
     assert store.list(project="proj") == []
+
+
+def test_write_episodic_stamps_session_provenance(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    session = ParsedSession(first_prompt="Do a thing", last_outcome="Did it", session_id="sess-1")
+    mem = write_episodic(
+        store,
+        session,
+        summarizer=HeuristicSummarizer(),
+        project="proj",
+        source="session-end",
+        machine_id="m",
+    )
+    assert mem is not None
+    assert mem.prov_source == "session-end"
+    assert mem.prov_session == "sess-1"

@@ -230,4 +230,6 @@ def write_episodic(
         project=project,
         machine_id=machine_id,
         tags=["session", source],
+        prov_source="session-end",
+        prov_session=session.session_id,
     )
