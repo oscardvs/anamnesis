@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { closeDb } from "./db";
 import { parseMemory, serializeMemory } from "./markdown";
-import { deleteNote, markReviewed, readNote, writeNote } from "./store";
+import { deleteNote, markReviewed, readNote, reflect, writeNote } from "./store";
 
 // writeNote orchestrates markdown write -> git commit -> reindex. We point the
 // store at a temp home and stub the `anamnesis` CLI with `true` (exit 0, no
@@ -229,6 +229,40 @@ describe("markReviewed", () => {
     await markReviewed(created.memory.id);
     const reread = await readNote(created.memory.id);
     expect(reread?.tags.filter((t) => t === "reviewed")).toHaveLength(1);
+  });
+});
+
+describe("reflect (CLI runner)", () => {
+  // Stub the CLI with a node script that echoes its args, so we test arg-building
+  // and output capture without invoking Python. (tmpdir has no spaces on CI.)
+  let echo: string;
+  beforeEach(() => {
+    echo = path.join(home, "echo.mjs");
+    fs.writeFileSync(echo, "process.stdout.write(process.argv.slice(2).join(' '));\n");
+    process.env.ANAMNESIS_CLI = `${process.execPath} ${echo}`;
+  });
+
+  it("builds dry-run args for all projects", async () => {
+    const res = await reflect();
+    expect(res.ok).toBe(true);
+    expect(res.output).toBe("reflect");
+  });
+
+  it("scopes to a project", async () => {
+    expect((await reflect({ project: "demo" })).output).toBe("reflect --project demo");
+  });
+
+  it("applies with --no-sync (dashboard reindexes, sync stays explicit)", async () => {
+    expect((await reflect({ apply: true })).output).toBe("reflect --apply --no-sync");
+  });
+
+  it("captures failure output without throwing", async () => {
+    const bad = path.join(home, "bad.mjs");
+    fs.writeFileSync(bad, "process.stderr.write('boom'); process.exit(3);\n");
+    process.env.ANAMNESIS_CLI = `${process.execPath} ${bad}`;
+    const res = await reflect();
+    expect(res.ok).toBe(false);
+    expect(res.output).toContain("boom");
   });
 });
 

@@ -249,6 +249,42 @@ export interface SyncOutcome {
   raw: string;
 }
 
+export interface CliRun {
+  ok: boolean;
+  /** Combined stdout+stderr, trimmed; shown verbatim in the UI. */
+  output: string;
+}
+
+/** Run a CLI command and capture its output. `refresh` drops the cached index after a mutation. */
+async function runCliText(args: string[], refresh: boolean): Promise<CliRun> {
+  try {
+    const { stdout, stderr } = await runCli(args);
+    if (refresh) closeDb();
+    return { ok: true, output: (stdout + stderr).trim() };
+  } catch (err) {
+    const e = err as { stdout?: string; stderr?: string; message?: string };
+    return {
+      ok: false,
+      output: ((e.stdout || "") + (e.stderr || "") || e.message || "command failed").trim(),
+    };
+  }
+}
+
+/** Run `anamnesis reflect` (dry-run unless apply). With apply, uses --no-sync and reindexes. */
+export async function reflect(opts: { project?: string; apply?: boolean } = {}): Promise<CliRun> {
+  const args = ["reflect"];
+  if (opts.project) args.push("--project", opts.project);
+  if (opts.apply) args.push("--apply", "--no-sync");
+  return runCliText(args, opts.apply ?? false);
+}
+
+/** Run `anamnesis backfill-provenance` (dry-run unless apply). With apply, uses --no-sync. */
+export async function backfillProvenance(opts: { apply?: boolean } = {}): Promise<CliRun> {
+  const args = ["backfill-provenance"];
+  if (opts.apply) args.push("--apply", "--no-sync");
+  return runCliText(args, opts.apply ?? false);
+}
+
 /** Run one git sync cycle via `anamnesis sync` and parse the result line. */
 export async function sync(): Promise<SyncOutcome> {
   let raw = "";
