@@ -8,8 +8,6 @@ import pytest
 
 from anamnesis.eval import (
     EvalCase,
-    RecallReport,
-    WorkingSetReport,
     append_candidates,
     build_eval_candidates,
     estimate_tokens,
@@ -67,7 +65,11 @@ def test_load_eval_set_warns_on_stale_id_and_refreshes_titles(tmp_path: Path):
     path = tmp_path / "eval.jsonl"
     save_eval_set(
         path,
-        [EvalCase(query="q", relevant_ids=[m.id, "01MISSING"], note_titles=["stale"], approved=True)],
+        [
+            EvalCase(
+                query="q", relevant_ids=[m.id, "01MISSING"], note_titles=["stale"], approved=True
+            )
+        ],
     )
     loaded, warnings = load_eval_set(path, store=store)
     assert loaded[0].note_titles == ["Real Title"]
@@ -95,7 +97,9 @@ def test_recall_at_k_hits_top_result(tmp_path: Path):
     m = store.write(
         type="semantic", title="WAL mode prevents lock conflicts", body="Use WAL.", project="p"
     )
-    rep = recall_at_k(store, [EvalCase(query="WAL mode lock conflicts", relevant_ids=[m.id])], ks=(1, 3))
+    rep = recall_at_k(
+        store, [EvalCase(query="WAL mode lock conflicts", relevant_ids=[m.id])], ks=(1, 3)
+    )
     assert rep.recall_at[1] == 1.0
     assert rep.recall_at[3] == 1.0
     assert rep.mrr == 1.0
@@ -106,7 +110,9 @@ def test_recall_at_k_counts_miss(tmp_path: Path):
     store = MemoryStore(tmp_path / "s")
     store.write(type="semantic", title="Unrelated note", body="nothing here", project="p")
     rep = recall_at_k(
-        store, [EvalCase(query="quantum entanglement teleportation", relevant_ids=["01NONE"])], ks=(1,)
+        store,
+        [EvalCase(query="quantum entanglement teleportation", relevant_ids=["01NONE"])],
+        ks=(1,),
     )
     assert rep.recall_at[1] == 0.0
     assert rep.mrr == 0.0
