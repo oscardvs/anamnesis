@@ -367,6 +367,7 @@ class ExperimentReport:
     reflected: dict[str, int]  # project -> notes written
     skipped: list[str]  # projects skipped (below the episodic threshold)
     ks: tuple[int, ...]
+    failed: list[str] = field(default_factory=list)  # projects that errored during reflection
 
     @property
     def inject_delta_pct(self) -> float:
@@ -399,14 +400,22 @@ def run_reflection_experiment(
         projects = sorted({m.project for m in sandbox.list(type="episodic", scope="portable")})
         reflected: dict[str, int] = {}
         skipped: list[str] = []
+        failed: list[str] = []
         for project in projects:
             if len(select_unreflected(sandbox, project)) < min_ep:
                 skipped.append(project)
                 continue
-            result = apply_reflection(sandbox, project, reflector, machine_id=machine_id)
+            try:
+                result = apply_reflection(sandbox, project, reflector, machine_id=machine_id)
+            except Exception as exc:  # noqa: BLE001 - one project must not kill the experiment
+                print(f"experiment: {project}: reflection failed ({exc}); skipped")
+                failed.append(project)
+                continue
             reflected[project] = result.notes_written
         after = run_baseline(sandbox, cases, ks)
-    return ExperimentReport(before=before, after=after, reflected=reflected, skipped=skipped, ks=ks)
+    return ExperimentReport(
+        before=before, after=after, reflected=reflected, skipped=skipped, ks=ks, failed=failed
+    )
 
 
 def render_experiment(report: ExperimentReport) -> str:
@@ -428,6 +437,11 @@ def render_experiment(report: ExperimentReport) -> str:
         f"reflected: {len(report.reflected)} project(s), {total} note(s) written; "
         f"skipped {len(report.skipped)} below-threshold project(s)"
     )
+    if report.failed:
+        lines.append(
+            f"failed: {len(report.failed)} project(s) errored during reflection: "
+            f"{', '.join(report.failed)}"
+        )
     if report.recall_regressed:
         lines.append("WARNING: recall regressed after reflection")
     return "\n".join(lines)

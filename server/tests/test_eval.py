@@ -294,14 +294,17 @@ def test_experiment_shrinks_inject_and_preserves_recall(tmp_path: Path, monkeypa
     for i in range(3):
         store.write(type="episodic", title=f"Session {i}", body="chatter " * 80, project="p")
     cases = [EvalCase(query="WAL lock topic", relevant_ids=[target.id])]
+    before_total = store.stats().total
 
     report = run_reflection_experiment(store, cases, _fake_reflector(), machine_id="m", ks=(1, 3))
 
     assert report.after.working_set.per_project["p"] < report.before.working_set.per_project["p"]
     assert not report.recall_regressed
     assert report.reflected.get("p", 0) >= 1
-    # The live store was not mutated by the experiment.
+    # The live store was not mutated by the experiment: no episodic re-tagged and,
+    # crucially, no distilled note (semantic or otherwise) leaked into the live store.
     assert all("reflected" not in m.tags for m in store.list(type="episodic"))
+    assert store.stats().total == before_total
     store.close()
 
 
@@ -312,6 +315,34 @@ def test_experiment_skips_below_threshold_project(tmp_path: Path, monkeypatch):
     report = run_reflection_experiment(store, [], _fake_reflector(), machine_id="m", ks=(1,))
     assert "p" in report.skipped
     assert report.reflected == {}
+    store.close()
+
+
+def test_experiment_records_failed_project(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_REFLECT_MIN_EPISODICS", "2")
+    store = MemoryStore(tmp_path / "s")
+    # Enough portable episodics to meet the threshold so reflection is attempted.
+    for i in range(2):
+        store.write(type="episodic", title=f"Session {i}", body="chatter " * 80, project="p")
+    cases: list[EvalCase] = []
+    before_total = store.stats().total
+
+    def client(system: str, user: str) -> str:
+        raise RuntimeError("boom")
+
+    reflector = Reflector(client=client, model_label="fake/model")
+
+    # One project erroring must not abort the experiment.
+    report = run_reflection_experiment(store, cases, reflector, machine_id="m", ks=(1,))
+
+    assert "p" in report.failed
+    assert "p" not in report.reflected
+    assert "p" not in report.skipped
+    text = render_experiment(report)
+    assert "failed" in text
+    assert "p" in text
+    # The live store is unchanged by the failed experiment.
+    assert store.stats().total == before_total
     store.close()
 
 
