@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { GitCommitVertical, Pencil } from "lucide-react";
 
 import { Markdown } from "@/components/markdown";
-import { TypeBadge } from "@/components/ui/badges";
+import { ProvenanceBadge, TypeBadge } from "@/components/ui/badges";
 import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/ui/misc";
 import { noteHistory } from "@/lib/git";
@@ -34,6 +34,7 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
           <TypeBadge type={note.type} />
+          <ProvenanceBadge source={note.provSource} confidence={note.confidence} />
           <Link
             href={`/browse?project=${encodeURIComponent(note.project)}`}
             className="font-mono text-faint transition-colors hover:text-text"
@@ -81,6 +82,18 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
               </MetaItem>
               <MetaItem label="Machine of origin">{note.machineId}</MetaItem>
               <MetaItem label="Scope">{note.scope}</MetaItem>
+              <MetaItem label="Provenance">
+                <span className="capitalize">{note.provSource}</span>
+                <span className="text-faint"> · {note.confidence}</span>
+                {note.provModel && (
+                  <span className="block font-mono text-[11px] text-muted">{note.provModel}</span>
+                )}
+                {note.provSession && (
+                  <span className="block font-mono text-[11px] text-faint">
+                    session {note.provSession}
+                  </span>
+                )}
+              </MetaItem>
               <MetaItem label="Updated">
                 <span title={absoluteTime(note.updatedAt)}>{relativeTime(note.updatedAt)}</span>
               </MetaItem>

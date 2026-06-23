@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { TypeBadge } from "@/components/ui/badges";
+import { ProvenanceBadge, TypeBadge } from "@/components/ui/badges";
 import { relativeTime, shortProject } from "@/lib/format";
 import type { MemoryMeta } from "@/lib/types";
 
@@ -24,7 +24,10 @@ export function NoteRow({ note }: { note: MemoryMeta }) {
           ))}
         </div>
       </div>
-      <TypeBadge type={note.type} className="mt-0.5 shrink-0" />
+      <div className="mt-0.5 flex shrink-0 items-center gap-1.5">
+        <TypeBadge type={note.type} />
+        <ProvenanceBadge source={note.provSource} confidence={note.confidence} />
+      </div>
     </Link>
   );
 }
