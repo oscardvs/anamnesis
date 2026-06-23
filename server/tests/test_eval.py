@@ -9,6 +9,7 @@ import pytest
 from anamnesis.eval import (
     BaselineReport,
     EvalCase,
+    ExperimentReport,
     append_candidates,
     baseline_to_dict,
     build_eval_candidates,
@@ -17,10 +18,13 @@ from anamnesis.eval import (
     load_eval_set,
     recall_at_k,
     render_baseline,
+    render_experiment,
     run_baseline,
+    run_reflection_experiment,
     sandbox_store,
     save_eval_set,
 )
+from anamnesis.reflect import Reflector
 from anamnesis.store import MemoryStore
 
 
@@ -272,3 +276,58 @@ def test_baseline_to_dict_is_json_serializable(tmp_path: Path):
     _json.dumps(d)  # must not raise
     assert d["recall"]["recall_at"]["1"] == 1.0
     store.close()
+
+
+def _fake_reflector(note_type: str = "semantic") -> Reflector:
+    def client(system: str, user: str) -> str:
+        return f'[{{"type": "{note_type}", "title": "Distilled", "body": "durable knowledge"}}]'
+
+    return Reflector(client=client, model_label="fake/model")
+
+
+def test_experiment_shrinks_inject_and_preserves_recall(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_REFLECT_MIN_EPISODICS", "2")
+    store = MemoryStore(tmp_path / "s")
+    # A semantic note the eval query targets (recall should survive reflection).
+    target = store.write(type="semantic", title="WAL lock topic", body="x", project="p")
+    # Enough verbose episodics to meet the threshold, so reflection drops them from inject.
+    for i in range(3):
+        store.write(type="episodic", title=f"Session {i}", body="chatter " * 80, project="p")
+    cases = [EvalCase(query="WAL lock topic", relevant_ids=[target.id])]
+
+    report = run_reflection_experiment(store, cases, _fake_reflector(), machine_id="m", ks=(1, 3))
+
+    assert report.after.working_set.per_project["p"] < report.before.working_set.per_project["p"]
+    assert not report.recall_regressed
+    assert report.reflected.get("p", 0) >= 1
+    # The live store was not mutated by the experiment.
+    assert all("reflected" not in m.tags for m in store.list(type="episodic"))
+    store.close()
+
+
+def test_experiment_skips_below_threshold_project(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_REFLECT_MIN_EPISODICS", "5")
+    store = MemoryStore(tmp_path / "s")
+    store.write(type="episodic", title="only one", body="b", project="p")
+    report = run_reflection_experiment(store, [], _fake_reflector(), machine_id="m", ks=(1,))
+    assert "p" in report.skipped
+    assert report.reflected == {}
+    store.close()
+
+
+def test_render_experiment_flags_regression():
+    from anamnesis.eval import BaselineReport, RecallReport, WorkingSetReport
+
+    before = BaselineReport(
+        recall=RecallReport(1, {1: 1.0}, 1.0),
+        working_set=WorkingSetReport({"p": 100}, 100.0, 100.0, 1000),
+    )
+    after = BaselineReport(
+        recall=RecallReport(1, {1: 0.0}, 0.0),
+        working_set=WorkingSetReport({"p": 50}, 50.0, 50.0, 1000),
+    )
+    report = ExperimentReport(before=before, after=after, reflected={"p": 1}, skipped=[], ks=(1,))
+    text = render_experiment(report)
+    assert "REGRESSION" in text
+    assert report.recall_regressed is True
+    assert report.inject_delta_pct < 0

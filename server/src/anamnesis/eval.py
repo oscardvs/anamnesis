@@ -22,6 +22,7 @@ from typing import Any
 from anamnesis.inject import render_inject, select_inject
 from anamnesis.llm_summarizer import LLMClient, _strip_fences, _window
 from anamnesis.redact import redact
+from anamnesis.reflect import Reflector, apply_reflection, resolve_min_episodics, select_unreflected
 from anamnesis.store import Memory, MemoryStore
 
 
@@ -355,3 +356,78 @@ def baseline_to_dict(report: BaselineReport) -> dict[str, object]:
             "corpus_tokens": w.corpus_tokens,
         },
     }
+
+
+@dataclass
+class ExperimentReport:
+    """Before/after-reflection measurement (computed on a sandbox copy)."""
+
+    before: BaselineReport
+    after: BaselineReport
+    reflected: dict[str, int]  # project -> notes written
+    skipped: list[str]  # projects skipped (below the episodic threshold)
+    ks: tuple[int, ...]
+
+    @property
+    def inject_delta_pct(self) -> float:
+        b = self.before.working_set.mean_tokens
+        a = self.after.working_set.mean_tokens
+        return (100.0 * (a - b) / b) if b else 0.0
+
+    @property
+    def recall_regressed(self) -> bool:
+        return any(
+            self.after.recall.recall_at[k] < self.before.recall.recall_at[k] for k in self.ks
+        )
+
+
+def run_reflection_experiment(
+    store: MemoryStore,
+    cases: Sequence[EvalCase],
+    reflector: Reflector,
+    *,
+    machine_id: str,
+    ks: tuple[int, ...] = (1, 3, 5, 8),
+) -> ExperimentReport:
+    """Measure recall + working set before and after ``reflect --apply`` on a sandbox copy.
+
+    The live store is never touched: all reflection happens on a throwaway copy.
+    """
+    with sandbox_store(store) as sandbox:
+        before = run_baseline(sandbox, cases, ks)
+        min_ep = resolve_min_episodics()
+        projects = sorted({m.project for m in sandbox.list(type="episodic", scope="portable")})
+        reflected: dict[str, int] = {}
+        skipped: list[str] = []
+        for project in projects:
+            if len(select_unreflected(sandbox, project)) < min_ep:
+                skipped.append(project)
+                continue
+            result = apply_reflection(sandbox, project, reflector, machine_id=machine_id)
+            reflected[project] = result.notes_written
+        after = run_baseline(sandbox, cases, ks)
+    return ExperimentReport(before=before, after=after, reflected=reflected, skipped=skipped, ks=ks)
+
+
+def render_experiment(report: ExperimentReport) -> str:
+    """A readable before/after text report."""
+    bw, aw = report.before.working_set, report.after.working_set
+    br, ar = report.before.recall, report.after.recall
+    lines = ["reflection experiment (sandbox copy; live store untouched)", ""]
+    lines.append(
+        f"inject tokens (mean/project): {bw.mean_tokens:.0f} -> {aw.mean_tokens:.0f} "
+        f"({report.inject_delta_pct:+.1f}%)"
+    )
+    lines.append("recall:")
+    for k in report.ks:
+        flag = " REGRESSION" if ar.recall_at[k] < br.recall_at[k] else ""
+        lines.append(f"  recall@{k}: {br.recall_at[k]:.3f} -> {ar.recall_at[k]:.3f}{flag}")
+    lines.append(f"  mrr: {br.mrr:.3f} -> {ar.mrr:.3f}")
+    total = sum(report.reflected.values())
+    lines.append(
+        f"reflected: {len(report.reflected)} project(s), {total} note(s) written; "
+        f"skipped {len(report.skipped)} below-threshold project(s)"
+    )
+    if report.recall_regressed:
+        lines.append("WARNING: recall regressed after reflection")
+    return "\n".join(lines)
