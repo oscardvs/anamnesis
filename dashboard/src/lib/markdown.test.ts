@@ -14,6 +14,11 @@ const sample: Memory = {
   tags: ["import", "kind:unknown"],
   createdAt: "2026-06-14T10:33:41+00:00",
   updatedAt: "2026-06-14T10:33:41+00:00",
+  provSource: "human",
+  provModel: "",
+  provSession: "",
+  confidence: 1.0,
+  supersedes: "",
 };
 
 describe("markdown front-matter codec", () => {
@@ -45,15 +50,8 @@ describe("markdown front-matter codec", () => {
       .filter((l) => /^\w/.test(l))
       .map((l) => l.split(":")[0]);
     expect(keys).toEqual([
-      "id",
-      "type",
-      "title",
-      "project",
-      "machine_id",
-      "scope",
-      "created_at",
-      "updated_at",
-      "tags",
+      "id", "type", "title", "project", "machine_id", "scope",
+      "prov_source", "confidence", "created_at", "updated_at", "tags",
     ]);
   });
 
@@ -68,9 +66,50 @@ describe("markdown front-matter codec", () => {
     expect(m.scope).toBe("portable");
     expect(m.tags).toEqual([]);
     expect(m.body).toBe("body");
+    expect(m.provSource).toBe("human");
+    expect(m.confidence).toBe(1.0);
+    expect(m.provModel).toBe("");
   });
 
   it("throws on a file with no front-matter", () => {
     expect(() => parseMemory("no front matter here")).toThrow();
+  });
+
+  it("renders confidence as a YAML float (1.0, not 1) to match PyYAML", () => {
+    expect(serializeMemory(sample)).toContain("confidence: 1.0");
+  });
+
+  it("emits provenance in the Python key order for an LLM note, with prov_model present", () => {
+    const reflection: Memory = {
+      ...sample,
+      provSource: "reflection",
+      provModel: "deepseek/v4-flash",
+      confidence: 0.6,
+    };
+    const text = serializeMemory(reflection);
+    expect(text).toContain("prov_source: reflection");
+    expect(text).toContain("confidence: 0.6");
+    expect(text).toContain("prov_model: deepseek/v4-flash");
+    const keys = text
+      .split("---\n")[1]
+      .split("\n")
+      .filter((l) => /^\w/.test(l))
+      .map((l) => l.split(":")[0]);
+    expect(keys).toEqual([
+      "id", "type", "title", "project", "machine_id", "scope",
+      "prov_source", "confidence", "prov_model", "created_at", "updated_at", "tags",
+    ]);
+  });
+
+  it("round-trips all provenance fields", () => {
+    const reflection: Memory = {
+      ...sample,
+      provSource: "reflection",
+      provModel: "deepseek/v4-flash",
+      provSession: "sess-1",
+      confidence: 0.6,
+      supersedes: "01KV2V3G79X1VNYD9WC0Z83AAA",
+    };
+    expect(parseMemory(serializeMemory(reflection))).toEqual(reflection);
   });
 });

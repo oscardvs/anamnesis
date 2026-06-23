@@ -1,7 +1,8 @@
 import * as React from "react";
 
 import { cn } from "@/lib/cn";
-import type { MemoryType } from "@/lib/types";
+import { provenanceBadge } from "@/lib/provenance";
+import type { MemoryType, ProvSource } from "@/lib/types";
 
 type Tone = "neutral" | "accent" | "ok" | "warn" | "info" | "danger";
 
@@ -34,6 +35,25 @@ export function Badge({
     >
       {children}
     </span>
+  );
+}
+
+/** Quiet-by-default provenance chip: nothing for human, a tinted pill otherwise. */
+export function ProvenanceBadge({
+  source,
+  confidence,
+  className,
+}: {
+  source: ProvSource;
+  confidence: number;
+  className?: string;
+}) {
+  const b = provenanceBadge(source, confidence);
+  if (!b) return null;
+  return (
+    <Badge tone={b.tone} className={className}>
+      {b.label}
+    </Badge>
   );
 }
 

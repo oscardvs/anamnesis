@@ -7,6 +7,10 @@
 export type MemoryType = "procedural" | "semantic" | "episodic";
 export type Scope = "portable" | "machine-local";
 
+export type ProvSource = "human" | "session-end" | "reflection" | "import";
+
+export const PROV_SOURCES: ProvSource[] = ["human", "session-end", "reflection", "import"];
+
 export const MEMORY_TYPES: MemoryType[] = ["procedural", "semantic", "episodic"];
 
 /** A full note: front-matter metadata plus the markdown body. */
@@ -21,6 +25,16 @@ export interface Memory {
   tags: string[];
   createdAt: string;
   updatedAt: string;
+  /** How this note came to exist (architecture section 3). */
+  provSource: ProvSource;
+  /** Model that generated the note, if any (e.g. "deepseek/v4-flash"); "" otherwise. */
+  provModel: string;
+  /** Originating session id, if any; "" otherwise. */
+  provSession: string;
+  /** Trust weight: 1.0 for human, 0.6 for reflection. */
+  confidence: number;
+  /** Id of a prior note this revises, if any; "" otherwise. */
+  supersedes: string;
 }
 
 /** A note's metadata as indexed in SQLite (no body; cheap to list/search). */
@@ -36,6 +50,9 @@ export interface MemoryMeta {
   updatedAt: string;
   /** Path of the markdown file relative to `memory/`, e.g. `semantic/01J….md`. */
   bodyPath: string;
+  provSource: ProvSource;
+  confidence: number;
+  provModel: string;
 }
 
 /** Aggregate counts surfaced on the overview, mirroring `StoreStats`. */

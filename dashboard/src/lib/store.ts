@@ -115,6 +115,11 @@ export async function writeNote(input: WriteInput): Promise<WriteResult> {
     tags: input.tags ?? existing?.tags ?? [],
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
+    provSource: existing?.provSource ?? "human",
+    provModel: existing?.provModel ?? "",
+    provSession: existing?.provSession ?? "",
+    confidence: existing?.confidence ?? 1.0,
+    supersedes: existing?.supersedes ?? "",
   };
 
   const rel = notePath(memory.type, memory.id);
@@ -145,6 +150,45 @@ export async function writeNote(input: WriteInput): Promise<WriteResult> {
 
   const reindexed = await reindex();
   return { memory, commit, reindexed };
+}
+
+/** Mark a note reviewed by appending the `reviewed` tag (idempotent). Preserves provenance. */
+export async function markReviewed(id: string): Promise<WriteResult> {
+  const existing = await readNote(id);
+  if (!existing) throw new Error(`note ${id} not found`);
+  if (existing.tags.includes("reviewed")) {
+    return { memory: existing, commit: null, reindexed: true };
+  }
+  return writeNote({
+    id,
+    type: existing.type,
+    title: existing.title,
+    body: existing.body,
+    project: existing.project,
+    tags: [...existing.tags, "reviewed"],
+    scope: existing.scope,
+  });
+}
+
+/** Delete a note: remove its markdown file, commit the removal if portable, reindex. */
+export async function deleteNote(
+  id: string,
+): Promise<{ deleted: boolean; commit: string | null; reindexed: boolean }> {
+  const existing = await readNote(id);
+  if (!existing) throw new Error(`note ${id} not found`);
+  const rel = notePath(existing.type, id);
+  await fs.rm(path.join(scopeDir(existing.scope), rel), { force: true });
+
+  let commit: string | null = null;
+  if (existing.scope === "portable") {
+    try {
+      commit = await commitPaths([rel], `anamnesis: delete ${existing.type} note via dashboard`);
+    } catch {
+      commit = null; // not a git repo, or nothing to commit; the file is already gone
+    }
+  }
+  const reindexed = await reindex();
+  return { deleted: true, commit, reindexed };
 }
 
 interface CliResult {
@@ -203,6 +247,42 @@ export interface SyncOutcome {
   head: string;
   detail: string;
   raw: string;
+}
+
+export interface CliRun {
+  ok: boolean;
+  /** Combined stdout+stderr, trimmed; shown verbatim in the UI. */
+  output: string;
+}
+
+/** Run a CLI command and capture its output. `refresh` drops the cached index after a mutation. */
+async function runCliText(args: string[], refresh: boolean): Promise<CliRun> {
+  try {
+    const { stdout, stderr } = await runCli(args);
+    if (refresh) closeDb();
+    return { ok: true, output: (stdout + stderr).trim() };
+  } catch (err) {
+    const e = err as { stdout?: string; stderr?: string; message?: string };
+    return {
+      ok: false,
+      output: ((e.stdout || "") + (e.stderr || "") || e.message || "command failed").trim(),
+    };
+  }
+}
+
+/** Run `anamnesis reflect` (dry-run unless apply). With apply, uses --no-sync and reindexes. */
+export async function reflect(opts: { project?: string; apply?: boolean } = {}): Promise<CliRun> {
+  const args = ["reflect"];
+  if (opts.project) args.push("--project", opts.project);
+  if (opts.apply) args.push("--apply", "--no-sync");
+  return runCliText(args, opts.apply ?? false);
+}
+
+/** Run `anamnesis backfill-provenance` (dry-run unless apply). With apply, uses --no-sync. */
+export async function backfillProvenance(opts: { apply?: boolean } = {}): Promise<CliRun> {
+  const args = ["backfill-provenance"];
+  if (opts.apply) args.push("--apply", "--no-sync");
+  return runCliText(args, opts.apply ?? false);
 }
 
 /** Run one git sync cycle via `anamnesis sync` and parse the result line. */

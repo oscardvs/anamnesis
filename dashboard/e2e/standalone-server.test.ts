@@ -71,4 +71,19 @@ describe.skipIf(!hasBuild)("standalone server (requires `npm run build` first)",
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("Anamnesis");
   });
+
+  it("renders the reflection chip with its confidence on the note page", async () => {
+    const res = await fetch(`http://127.0.0.1:${PORT}/notes/01J0SEEDA00000000000000000`);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("reflection");
+    expect(html).toContain("0.6");
+  });
+
+  it("lists pending reflections on /review", async () => {
+    const res = await fetch(`http://127.0.0.1:${PORT}/review`);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("Distilled: prefer WAL for concurrent sessions");
+  });
 });

@@ -6,8 +6,8 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { closeDb } from "./db";
-import { parseMemory } from "./markdown";
-import { readNote, writeNote } from "./store";
+import { parseMemory, serializeMemory } from "./markdown";
+import { deleteNote, markReviewed, readNote, reflect, writeNote } from "./store";
 
 // writeNote orchestrates markdown write -> git commit -> reindex. We point the
 // store at a temp home and stub the `anamnesis` CLI with `true` (exit 0, no
@@ -121,6 +121,57 @@ describe("readNote", () => {
   });
 });
 
+describe("writeNote provenance", () => {
+  it("preserves an existing note's provenance when the dashboard edits it", async () => {
+    // Seed a reflection note directly on disk (the CLI, not the dashboard, makes these).
+    const id = "01KV2V3G79X1VNYD9WC0Z83WDW";
+    const file = path.join(mem, "semantic", `${id}.md`);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(
+      file,
+      serializeMemory({
+        id,
+        type: "semantic",
+        title: "Distilled fact",
+        body: "prefer WAL",
+        project: "demo",
+        machineId: "testmachine",
+        scope: "portable",
+        tags: ["reflection"],
+        createdAt: "2026-06-01T00:00:00+00:00",
+        updatedAt: "2026-06-01T00:00:00+00:00",
+        provSource: "reflection",
+        provModel: "deepseek/v4-flash",
+        provSession: "",
+        confidence: 0.6,
+        supersedes: "",
+      }),
+      "utf-8",
+    );
+
+    await writeNote({
+      id,
+      type: "semantic",
+      title: "Distilled fact",
+      body: "prefer WAL",
+      project: "demo",
+      tags: ["reflection", "reviewed"],
+    });
+
+    const reread = await readNote(id);
+    expect(reread?.provSource).toBe("reflection");
+    expect(reread?.provModel).toBe("deepseek/v4-flash");
+    expect(reread?.confidence).toBe(0.6);
+    expect(reread?.tags).toEqual(["reflection", "reviewed"]);
+  });
+
+  it("defaults new notes to human / confidence 1.0", async () => {
+    const res = await writeNote({ type: "semantic", title: "t", body: "b" });
+    expect(res.memory.provSource).toBe("human");
+    expect(res.memory.confidence).toBe(1.0);
+  });
+});
+
 describe("machine-local scope", () => {
   it("writes a machine-local note to local/ (not memory/) and does not commit it", async () => {
     const res = await writeNote({
@@ -146,5 +197,89 @@ describe("machine-local scope", () => {
     expect(res.commit).not.toBeNull();
     expect(fs.existsSync(path.join(mem, "semantic", `${res.memory.id}.md`))).toBe(true);
     expect(fs.existsSync(path.join(home, "local", "semantic", `${res.memory.id}.md`))).toBe(false);
+  });
+});
+
+describe("markReviewed", () => {
+  it("adds the reviewed tag while preserving provenance", async () => {
+    const id = "01KV2V3G79X1VNYD9WC0Z83WDW";
+    const file = path.join(mem, "semantic", `${id}.md`);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(
+      file,
+      serializeMemory({
+        id, type: "semantic", title: "Distilled", body: "b", project: "demo",
+        machineId: "testmachine", scope: "portable", tags: ["reflection"],
+        createdAt: "2026-06-01T00:00:00+00:00", updatedAt: "2026-06-01T00:00:00+00:00",
+        provSource: "reflection", provModel: "deepseek/v4-flash", provSession: "",
+        confidence: 0.6, supersedes: "",
+      }),
+      "utf-8",
+    );
+
+    await markReviewed(id);
+    const reread = await readNote(id);
+    expect(reread?.tags).toContain("reviewed");
+    expect(reread?.provSource).toBe("reflection");
+    expect(reread?.confidence).toBe(0.6);
+  });
+
+  it("is idempotent (no duplicate reviewed tag)", async () => {
+    const created = await writeNote({ type: "semantic", title: "t", body: "b", tags: ["reviewed"] });
+    await markReviewed(created.memory.id);
+    const reread = await readNote(created.memory.id);
+    expect(reread?.tags.filter((t) => t === "reviewed")).toHaveLength(1);
+  });
+});
+
+describe("reflect (CLI runner)", () => {
+  // Stub the CLI with a node script that echoes its args, so we test arg-building
+  // and output capture without invoking Python. (tmpdir has no spaces on CI.)
+  let echo: string;
+  beforeEach(() => {
+    echo = path.join(home, "echo.mjs");
+    fs.writeFileSync(echo, "process.stdout.write(process.argv.slice(2).join(' '));\n");
+    process.env.ANAMNESIS_CLI = `${process.execPath} ${echo}`;
+  });
+
+  it("builds dry-run args for all projects", async () => {
+    const res = await reflect();
+    expect(res.ok).toBe(true);
+    expect(res.output).toBe("reflect");
+  });
+
+  it("scopes to a project", async () => {
+    expect((await reflect({ project: "demo" })).output).toBe("reflect --project demo");
+  });
+
+  it("applies with --no-sync (dashboard reindexes, sync stays explicit)", async () => {
+    expect((await reflect({ apply: true })).output).toBe("reflect --apply --no-sync");
+  });
+
+  it("captures failure output without throwing", async () => {
+    const bad = path.join(home, "bad.mjs");
+    fs.writeFileSync(bad, "process.stderr.write('boom'); process.exit(3);\n");
+    process.env.ANAMNESIS_CLI = `${process.execPath} ${bad}`;
+    const res = await reflect();
+    expect(res.ok).toBe(false);
+    expect(res.output).toContain("boom");
+  });
+});
+
+describe("deleteNote", () => {
+  it("removes a portable note's file and commits the removal", async () => {
+    const created = await writeNote({ type: "semantic", title: "bye", body: "b", project: "p" });
+    const file = path.join(mem, "semantic", `${created.memory.id}.md`);
+    expect(fs.existsSync(file)).toBe(true);
+
+    const res = await deleteNote(created.memory.id);
+    expect(res.deleted).toBe(true);
+    expect(res.commit).not.toBeNull();
+    expect(fs.existsSync(file)).toBe(false);
+    expect(await readNote(created.memory.id)).toBeNull();
+  });
+
+  it("throws for an unknown id", async () => {
+    await expect(deleteNote("01KV000000000000000000000X")).rejects.toThrow(/not found/);
   });
 });
