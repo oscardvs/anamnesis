@@ -17,7 +17,9 @@ from pathlib import Path
 from typing import Any
 
 from anamnesis.inject import render_inject, select_inject
-from anamnesis.store import MemoryStore
+from anamnesis.llm_summarizer import LLMClient, _strip_fences, _window
+from anamnesis.redact import redact
+from anamnesis.store import Memory, MemoryStore
 
 
 def estimate_tokens(text: str) -> int:
@@ -199,3 +201,76 @@ def inject_working_set(store: MemoryStore, *, k: int = 8) -> WorkingSetReport:
         median_tokens=statistics.median(sizes) if sizes else 0.0,
         corpus_tokens=corpus_tokens,
     )
+
+
+QUERYGEN_SYSTEM_PROMPT = (
+    "You write one realistic search query a developer would type to find a specific "
+    "memory note. You are given the note's title and body.\n\n"
+    'Return ONLY a JSON object, no prose: {"query": <string>}.\n\n'
+    "Write a natural-language question or search phrase that THIS note answers. Use "
+    "DIFFERENT words from the note wherever you can (paraphrase, synonyms) so the query "
+    "tests meaning-based recall rather than exact keyword overlap. One query only. "
+    "Never include secrets, API keys, tokens, or credentials."
+)
+
+_QUERYGEN_MAX_CHARS = 40_000
+
+
+def _parse_query(text: str) -> str:
+    """Parse the model's ``{"query": ...}`` object. Raises ValueError on a bad shape."""
+    data = json.loads(_strip_fences(text))
+    if not isinstance(data, dict):
+        raise ValueError("query-gen output is not a JSON object")
+    query = str(data.get("query", "")).strip()
+    if not query:
+        raise ValueError("query-gen output missing 'query'")
+    return query
+
+
+def _sample_notes(store: MemoryStore, types: Sequence[str], n: int) -> list[Memory]:
+    """Deterministic round-robin sample across projects, for coverage (no RNG)."""
+    buckets: dict[str, list[Memory]] = {}
+    for t in types:
+        for m in store.list(type=t):
+            buckets.setdefault(m.project, []).append(m)
+    for ms in buckets.values():
+        ms.sort(key=lambda m: m.id)
+    projects = sorted(buckets)
+    ordered: list[Memory] = []
+    i = 0
+    while any(buckets[p] for p in projects):
+        bucket = buckets[projects[i % len(projects)]]
+        if bucket:
+            ordered.append(bucket.pop(0))
+        i += 1
+    return ordered[:n]
+
+
+def build_eval_candidates(
+    store: MemoryStore,
+    client: LLMClient,
+    model_label: str,
+    *,
+    types: Sequence[str] = ("semantic", "procedural"),
+    n: int = 30,
+    max_chars: int = _QUERYGEN_MAX_CHARS,
+) -> list[EvalCase]:
+    """Generate candidate eval cases via the LLM: one paraphrase query per sampled note.
+
+    Each note is redacted before it reaches the client. A failed or unparseable
+    response raises (no fallback, never fabricate a case).
+    """
+    cases: list[EvalCase] = []
+    for note in _sample_notes(store, types, n):
+        content = _window(redact(f"# {note.title}\n{note.body}"), max_chars)
+        query = _parse_query(client(QUERYGEN_SYSTEM_PROMPT, content))
+        cases.append(
+            EvalCase(
+                query=query,
+                relevant_ids=[note.id],
+                note_titles=[note.title],
+                approved=False,
+                source=f"llm:{model_label}",
+            )
+        )
+    return cases

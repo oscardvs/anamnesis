@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from anamnesis.eval import (
     EvalCase,
     RecallReport,
     WorkingSetReport,
     append_candidates,
+    build_eval_candidates,
     estimate_tokens,
     inject_working_set,
     load_eval_set,
@@ -157,4 +160,47 @@ def test_inject_working_set_empty_store(tmp_path: Path):
     assert ws.mean_tokens == 0.0
     assert ws.median_tokens == 0.0
     assert ws.corpus_tokens == 0
+    store.close()
+
+
+def test_build_eval_candidates_one_query_per_note(tmp_path: Path):
+    store = MemoryStore(tmp_path / "s")
+    a = store.write(type="semantic", title="Note A", body="body a", project="p")
+    b = store.write(type="procedural", title="Note B", body="body b", project="q")
+
+    def client(system: str, user: str) -> str:
+        return '{"query": "paraphrased question"}'
+
+    cases = build_eval_candidates(store, client, "fake/model", n=10)
+    assert len(cases) == 2
+    assert all(c.approved is False for c in cases)
+    assert all(c.source == "llm:fake/model" for c in cases)
+    assert {c.relevant_ids[0] for c in cases} == {a.id, b.id}
+    store.close()
+
+
+def test_build_eval_candidates_redacts_secrets(tmp_path: Path):
+    store = MemoryStore(tmp_path / "s")
+    store.write(type="semantic", title="Creds", body="key sk-SECRETVALUE123456 here", project="p")
+    captured: list[str] = []
+
+    def client(system: str, user: str) -> str:
+        captured.append(user)
+        return '{"query": "q"}'
+
+    build_eval_candidates(store, client, "fake/model")
+    assert "sk-SECRETVALUE123456" not in captured[0]
+    assert "[REDACTED]" in captured[0]
+    store.close()
+
+
+def test_build_eval_candidates_raises_on_bad_json(tmp_path: Path):
+    store = MemoryStore(tmp_path / "s")
+    store.write(type="semantic", title="Note", body="b", project="p")
+
+    def client(system: str, user: str) -> str:
+        return "not json at all"
+
+    with pytest.raises(ValueError):
+        build_eval_candidates(store, client, "fake/model")
     store.close()
