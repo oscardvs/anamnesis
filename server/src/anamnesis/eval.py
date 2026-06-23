@@ -10,8 +10,11 @@ from __future__ import annotations
 
 import json
 import math
+import shutil
 import statistics
-from collections.abc import Iterable, Sequence
+import tempfile
+from collections.abc import Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -274,3 +277,27 @@ def build_eval_candidates(
             )
         )
     return cases
+
+
+@contextmanager
+def sandbox_store(store: MemoryStore) -> Iterator[MemoryStore]:
+    """Yield a throwaway, reindexed copy of the store's markdown for safe experiments.
+
+    Copies the ``memory/`` and ``local/`` trees into a temp dir and builds a fresh
+    MemoryStore over the copy. The original store is never touched; the temp dir is
+    removed on exit.
+    """
+    tmp = Path(tempfile.mkdtemp(prefix="anamnesis-eval-"))
+    sandbox: MemoryStore | None = None
+    try:
+        for sub in ("memory", "local"):
+            src = store.root / sub
+            if src.exists():
+                shutil.copytree(src, tmp / sub)
+        sandbox = MemoryStore(tmp)
+        sandbox.reindex()
+        yield sandbox
+    finally:
+        if sandbox is not None:
+            sandbox.close()
+        shutil.rmtree(tmp, ignore_errors=True)

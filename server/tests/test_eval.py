@@ -14,6 +14,7 @@ from anamnesis.eval import (
     inject_working_set,
     load_eval_set,
     recall_at_k,
+    sandbox_store,
     save_eval_set,
 )
 from anamnesis.store import MemoryStore
@@ -209,4 +210,27 @@ def test_build_eval_candidates_raises_on_bad_json(tmp_path: Path):
 
     with pytest.raises(ValueError):
         build_eval_candidates(store, client, "fake/model")
+    store.close()
+
+
+def test_sandbox_store_copies_and_isolates(tmp_path: Path):
+    store = MemoryStore(tmp_path / "s")
+    m = store.write(type="semantic", title="Orig", body="b", project="p")
+    with sandbox_store(store) as sandbox:
+        assert sandbox.root != store.root
+        assert sandbox.get(m.id).title == "Orig"  # copy has the note
+        sandbox.write(type="semantic", title="Sandbox only", body="b2", project="p")
+    # The live store is untouched by the sandbox write.
+    assert store.stats().total == 1
+    store.close()
+
+
+def test_sandbox_store_cleans_up(tmp_path: Path):
+    store = MemoryStore(tmp_path / "s")
+    store.write(type="semantic", title="Orig", body="b", project="p")
+    captured_root = None
+    with sandbox_store(store) as sandbox:
+        captured_root = sandbox.root
+        assert captured_root.exists()
+    assert not captured_root.exists()
     store.close()
