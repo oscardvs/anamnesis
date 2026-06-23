@@ -6,9 +6,11 @@ from pathlib import Path
 
 from anamnesis.eval import (
     EvalCase,
+    RecallReport,
     append_candidates,
     estimate_tokens,
     load_eval_set,
+    recall_at_k,
     save_eval_set,
 )
 from anamnesis.store import MemoryStore
@@ -81,3 +83,45 @@ def test_append_candidates_skips_existing_query(tmp_path: Path):
     assert added == 1
     loaded, _ = load_eval_set(path, include_unreviewed=True)
     assert [c.query for c in loaded] == ["dup", "new"]
+
+
+def test_recall_at_k_hits_top_result(tmp_path: Path):
+    store = MemoryStore(tmp_path / "s")
+    m = store.write(
+        type="semantic", title="WAL mode prevents lock conflicts", body="Use WAL.", project="p"
+    )
+    rep = recall_at_k(store, [EvalCase(query="WAL mode lock conflicts", relevant_ids=[m.id])], ks=(1, 3))
+    assert rep.recall_at[1] == 1.0
+    assert rep.recall_at[3] == 1.0
+    assert rep.mrr == 1.0
+    store.close()
+
+
+def test_recall_at_k_counts_miss(tmp_path: Path):
+    store = MemoryStore(tmp_path / "s")
+    store.write(type="semantic", title="Unrelated note", body="nothing here", project="p")
+    rep = recall_at_k(
+        store, [EvalCase(query="quantum entanglement teleportation", relevant_ids=["01NONE"])], ks=(1,)
+    )
+    assert rep.recall_at[1] == 0.0
+    assert rep.mrr == 0.0
+    store.close()
+
+
+def test_recall_at_k_is_monotonic_in_k(tmp_path: Path):
+    store = MemoryStore(tmp_path / "s")
+    # Two notes share the word "alpha"; the target is the less BM25-favored one.
+    target = store.write(type="semantic", title="alpha beta", body="x", project="p")
+    store.write(type="semantic", title="alpha alpha alpha", body="x", project="p")
+    rep = recall_at_k(store, [EvalCase(query="alpha", relevant_ids=[target.id])], ks=(1, 3))
+    assert rep.recall_at[3] >= rep.recall_at[1]
+    store.close()
+
+
+def test_recall_at_k_empty_cases(tmp_path: Path):
+    store = MemoryStore(tmp_path / "s")
+    rep = recall_at_k(store, [], ks=(1, 5))
+    assert rep.n_cases == 0
+    assert rep.recall_at == {1: 0.0, 5: 0.0}
+    assert rep.mrr == 0.0
+    store.close()

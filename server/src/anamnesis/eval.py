@@ -120,3 +120,44 @@ def append_candidates(path: Path, cases: Sequence[EvalCase]) -> int:
         for c in fresh:
             fh.write(_dump_case(c) + "\n")
     return len(fresh)
+
+
+@dataclass
+class RecallReport:
+    """Recall@k and MRR over an eval set."""
+
+    n_cases: int
+    recall_at: dict[int, float]
+    mrr: float
+
+
+def recall_at_k(
+    store: MemoryStore,
+    cases: Sequence[EvalCase],
+    ks: tuple[int, ...] = (1, 3, 5, 8),
+) -> RecallReport:
+    """Recall@k and MRR using ``store.search``.
+
+    A case is a hit at k when any of its ``relevant_ids`` appears in the top-k
+    search results; MRR uses the rank of the first relevant hit.
+    """
+    if not cases:
+        return RecallReport(n_cases=0, recall_at={k: 0.0 for k in ks}, mrr=0.0)
+    max_k = max(ks)
+    hits = {k: 0 for k in ks}
+    rr_total = 0.0
+    for case in cases:
+        result_ids = [m.id for m in store.search(case.query, k=max_k)]
+        relevant = set(case.relevant_ids)
+        rank: int | None = None
+        for i, rid in enumerate(result_ids, start=1):
+            if rid in relevant:
+                rank = i
+                break
+        if rank is not None:
+            rr_total += 1.0 / rank
+            for k in ks:
+                if rank <= k:
+                    hits[k] += 1
+    n = len(cases)
+    return RecallReport(n_cases=n, recall_at={k: hits[k] / n for k in ks}, mrr=rr_total / n)
