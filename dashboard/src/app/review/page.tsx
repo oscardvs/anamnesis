@@ -1,6 +1,6 @@
 import { listMeta } from "@/lib/db";
-import { CliPreviewButton } from "@/components/cli-preview-button";
 import { ReflectionReview } from "@/components/reflection-review";
+import { ReviewPageActions } from "@/components/review-page-actions";
 import { PageHeader } from "@/components/ui/misc";
 
 export const dynamic = "force-dynamic";
@@ -14,12 +14,7 @@ export default async function ReviewPage() {
         eyebrow="checkpoint"
         title="Review"
         description="LLM-distilled reflection notes await your review. Keep the good ones, delete the rest. Provenance is always preserved."
-        actions={
-          <>
-            <CliPreviewButton label="Reflect all" endpoint="/api/reflect" buildQuery={(a) => (a ? "apply=1" : "")} variant="primary" />
-            <CliPreviewButton label="Backfill provenance" endpoint="/api/backfill-provenance" buildQuery={(a) => (a ? "apply=1" : "")} />
-          </>
-        }
+        actions={<ReviewPageActions />}
       />
       <ReflectionReview initialNotes={notes} />
     </div>
