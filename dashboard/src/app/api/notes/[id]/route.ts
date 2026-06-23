@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getMeta } from "@/lib/db";
-import { readNote, writeNote, type WriteInput } from "@/lib/store";
+import { deleteNote, readNote, writeNote, type WriteInput } from "@/lib/store";
 import { MEMORY_TYPES } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -47,6 +47,16 @@ export async function PUT(request: Request, { params }: Params) {
       scope: body.scope,
     });
     return NextResponse.json(result);
+  } catch (err) {
+    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+  }
+}
+
+/** DELETE /api/notes/:id - remove a note (file + commit + reindex). */
+export async function DELETE(_request: Request, { params }: Params) {
+  const { id } = await params;
+  try {
+    return NextResponse.json(await deleteNote(id));
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
