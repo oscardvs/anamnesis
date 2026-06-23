@@ -13,7 +13,7 @@ import fs from "node:fs";
 import Database from "better-sqlite3";
 
 import { dbPath } from "./config";
-import type { MemoryMeta, MemoryType, Scope, StoreStats } from "./types";
+import type { MemoryMeta, MemoryType, ProvSource, Scope, StoreStats } from "./types";
 
 const TAG_SEP = "\x1f";
 
@@ -68,6 +68,7 @@ const SELECT_META = `
   SELECT m.id, m.type, m.title, m.body_path AS bodyPath, m.project,
          m.machine_id AS machineId, m.scope, m.created_at AS createdAt,
          m.updated_at AS updatedAt,
+         m.prov_source AS provSource, m.confidence, m.prov_model AS provModel,
          (SELECT group_concat(tag, char(31)) FROM memory_tags t WHERE t.memory_id = m.id) AS tagStr
 `;
 
@@ -81,6 +82,9 @@ interface MetaRow {
   scope: string;
   createdAt: string;
   updatedAt: string;
+  provSource: string;
+  confidence: number;
+  provModel: string | null;
   tagStr: string | null;
 }
 
@@ -95,16 +99,18 @@ function toMeta(row: MetaRow): MemoryMeta {
     scope: row.scope as Scope,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    provSource: row.provSource as ProvSource,
+    confidence: row.confidence,
+    provModel: row.provModel ?? "",
     tags: row.tagStr ? row.tagStr.split(TAG_SEP) : [],
-    provSource: "human",
-    confidence: 1.0,
-    provModel: "",
   };
 }
 
 export interface ListOpts {
   project?: string;
   type?: MemoryType;
+  provSource?: ProvSource;
+  excludeTag?: string;
   limit?: number;
   offset?: number;
 }
@@ -122,6 +128,14 @@ export function listMeta(opts: ListOpts = {}): MemoryMeta[] {
   if (opts.type) {
     where.push("m.type = ?");
     params.push(opts.type);
+  }
+  if (opts.provSource) {
+    where.push("m.prov_source = ?");
+    params.push(opts.provSource);
+  }
+  if (opts.excludeTag) {
+    where.push("m.id NOT IN (SELECT memory_id FROM memory_tags WHERE tag = ?)");
+    params.push(opts.excludeTag);
   }
   const sql = [
     SELECT_META,
@@ -150,6 +164,14 @@ export function searchMeta(query: string, opts: ListOpts = {}): MemoryMeta[] {
     where.push("m.type = ?");
     params.push(opts.type);
   }
+  if (opts.provSource) {
+    where.push("m.prov_source = ?");
+    params.push(opts.provSource);
+  }
+  if (opts.excludeTag) {
+    where.push("m.id NOT IN (SELECT memory_id FROM memory_tags WHERE tag = ?)");
+    params.push(opts.excludeTag);
+  }
   const sql = [
     SELECT_META,
     "FROM memories_fts f JOIN memories m ON m.id = f.id",
@@ -169,6 +191,19 @@ export function getMeta(id: string): MemoryMeta | null {
     | MetaRow
     | undefined;
   return row ? toMeta(row) : null;
+}
+
+/** How many reflection notes are still awaiting human review (not tagged `reviewed`). */
+export function countPendingReflections(): number {
+  const db = getDb();
+  if (!db) return 0;
+  const row = db
+    .prepare(
+      "SELECT COUNT(*) AS c FROM memories WHERE prov_source = 'reflection' " +
+        "AND id NOT IN (SELECT memory_id FROM memory_tags WHERE tag = 'reviewed')",
+    )
+    .get() as { c: number };
+  return row.c;
 }
 
 /** Aggregate counts (total, by type, by project), mirroring `StoreStats`. */
