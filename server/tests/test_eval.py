@@ -7,13 +7,17 @@ from pathlib import Path
 import pytest
 
 from anamnesis.eval import (
+    BaselineReport,
     EvalCase,
     append_candidates,
+    baseline_to_dict,
     build_eval_candidates,
     estimate_tokens,
     inject_working_set,
     load_eval_set,
     recall_at_k,
+    render_baseline,
+    run_baseline,
     sandbox_store,
     save_eval_set,
 )
@@ -233,4 +237,38 @@ def test_sandbox_store_cleans_up(tmp_path: Path):
         captured_root = sandbox.root
         assert captured_root.exists()
     assert not captured_root.exists()
+    store.close()
+
+
+def test_run_baseline_combines_recall_and_working_set(tmp_path: Path):
+    store = MemoryStore(tmp_path / "s")
+    m = store.write(type="semantic", title="alpha topic", body="content", project="p")
+    report = run_baseline(store, [EvalCase(query="alpha topic", relevant_ids=[m.id])], ks=(1, 3))
+    assert report.recall.recall_at[1] == 1.0
+    assert "p" in report.working_set.per_project
+    assert isinstance(report, BaselineReport)
+    store.close()
+
+
+def test_render_baseline_is_readable(tmp_path: Path):
+    store = MemoryStore(tmp_path / "s")
+    m = store.write(type="semantic", title="alpha topic", body="content", project="p")
+    text = render_baseline(
+        run_baseline(store, [EvalCase(query="alpha topic", relevant_ids=[m.id])], ks=(1,))
+    )
+    assert "recall@1" in text
+    assert "working set" in text
+    store.close()
+
+
+def test_baseline_to_dict_is_json_serializable(tmp_path: Path):
+    import json as _json
+
+    store = MemoryStore(tmp_path / "s")
+    m = store.write(type="semantic", title="alpha topic", body="content", project="p")
+    d = baseline_to_dict(
+        run_baseline(store, [EvalCase(query="alpha topic", relevant_ids=[m.id])], ks=(1,))
+    )
+    _json.dumps(d)  # must not raise
+    assert d["recall"]["recall_at"]["1"] == 1.0
     store.close()

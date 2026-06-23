@@ -301,3 +301,57 @@ def sandbox_store(store: MemoryStore) -> Iterator[MemoryStore]:
         if sandbox is not None:
             sandbox.close()
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+@dataclass
+class BaselineReport:
+    """Recall + working-set measurement of one store state."""
+
+    recall: RecallReport
+    working_set: WorkingSetReport
+
+
+def run_baseline(
+    store: MemoryStore,
+    cases: Sequence[EvalCase],
+    ks: tuple[int, ...] = (1, 3, 5, 8),
+) -> BaselineReport:
+    """Measure recall@k and inject working-set size on the store as-is."""
+    return BaselineReport(
+        recall=recall_at_k(store, cases, ks),
+        working_set=inject_working_set(store),
+    )
+
+
+def render_baseline(report: BaselineReport) -> str:
+    """A readable text report."""
+    r, w = report.recall, report.working_set
+    lines = [f"recall: {r.n_cases} case(s)"]
+    for k in sorted(r.recall_at):
+        lines.append(f"  recall@{k}: {r.recall_at[k]:.3f}")
+    lines.append(f"  mrr: {r.mrr:.3f}")
+    pct = (100.0 * w.mean_tokens / w.corpus_tokens) if w.corpus_tokens else 0.0
+    lines.append(
+        f"working set: mean={w.mean_tokens:.0f} median={w.median_tokens:.0f} tok/project "
+        f"over {len(w.per_project)} project(s); corpus={w.corpus_tokens} tok "
+        f"(a session injects ~{pct:.1f}% of the corpus)"
+    )
+    return "\n".join(lines)
+
+
+def baseline_to_dict(report: BaselineReport) -> dict[str, object]:
+    """A JSON-serializable view (string keys; for --json output and tracking)."""
+    r, w = report.recall, report.working_set
+    return {
+        "recall": {
+            "n_cases": r.n_cases,
+            "recall_at": {str(k): v for k, v in r.recall_at.items()},
+            "mrr": r.mrr,
+        },
+        "working_set": {
+            "per_project": w.per_project,
+            "mean_tokens": w.mean_tokens,
+            "median_tokens": w.median_tokens,
+            "corpus_tokens": w.corpus_tokens,
+        },
+    }
