@@ -147,6 +147,7 @@ def test_inject_working_set_excludes_global_project(tmp_path: Path):
     ws = inject_working_set(store)
     assert "global" not in ws.per_project
     assert "p" in ws.per_project
+    store.close()
 
 
 def test_inject_working_set_empty_store(tmp_path: Path):
