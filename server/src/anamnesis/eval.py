@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import json
 import math
+import statistics
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from anamnesis.inject import render_inject, select_inject
 from anamnesis.store import MemoryStore
 
 
@@ -161,3 +163,39 @@ def recall_at_k(
                     hits[k] += 1
     n = len(cases)
     return RecallReport(n_cases=n, recall_at={k: hits[k] / n for k in ks}, mrr=rr_total / n)
+
+
+@dataclass
+class WorkingSetReport:
+    """Token size of the SessionStart inject block, per non-global project."""
+
+    per_project: dict[str, int]
+    mean_tokens: float
+    median_tokens: float
+    corpus_tokens: int
+
+
+def _projects(store: MemoryStore) -> list[str]:
+    """Non-global projects present in the store (global is injected into every block)."""
+    return sorted(p for p in store.stats().by_project if p != "global")
+
+
+def inject_working_set(store: MemoryStore, *, k: int = 8) -> WorkingSetReport:
+    """Per-project inject-block tokens, plus mean/median and a full-corpus denominator.
+
+    Mean per project, not a sum: ``global`` notes are injected every session, so
+    summing across projects would multiply global tokens by the project count and
+    overstate the working set.
+    """
+    per_project: dict[str, int] = {}
+    for project in _projects(store):
+        block = render_inject(select_inject(store, project=project, k=k))
+        per_project[project] = estimate_tokens(block)
+    sizes = list(per_project.values())
+    corpus_tokens = sum(estimate_tokens(m.title) + estimate_tokens(m.body) for m in store.list())
+    return WorkingSetReport(
+        per_project=per_project,
+        mean_tokens=statistics.mean(sizes) if sizes else 0.0,
+        median_tokens=statistics.median(sizes) if sizes else 0.0,
+        corpus_tokens=corpus_tokens,
+    )

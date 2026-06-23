@@ -7,8 +7,10 @@ from pathlib import Path
 from anamnesis.eval import (
     EvalCase,
     RecallReport,
+    WorkingSetReport,
     append_candidates,
     estimate_tokens,
+    inject_working_set,
     load_eval_set,
     recall_at_k,
     save_eval_set,
@@ -124,4 +126,34 @@ def test_recall_at_k_empty_cases(tmp_path: Path):
     assert rep.n_cases == 0
     assert rep.recall_at == {1: 0.0, 5: 0.0}
     assert rep.mrr == 0.0
+    store.close()
+
+
+def test_inject_working_set_drops_reflected_episodic(tmp_path: Path):
+    store = MemoryStore(tmp_path / "s")
+    store.write(type="episodic", title="Session A", body="a" * 400, project="p", tags=["reflected"])
+    store.write(type="episodic", title="Session B", body="b" * 400, project="q")
+    ws = inject_working_set(store)
+    assert ws.per_project["p"] == 0  # only a reflected episodic -> nothing injected
+    assert ws.per_project["q"] > 0
+    assert ws.corpus_tokens > 0
+    store.close()
+
+
+def test_inject_working_set_excludes_global_project(tmp_path: Path):
+    store = MemoryStore(tmp_path / "s")
+    store.write(type="semantic", title="Global pref", body="x", project="global")
+    store.write(type="semantic", title="Proj note", body="y", project="p")
+    ws = inject_working_set(store)
+    assert "global" not in ws.per_project
+    assert "p" in ws.per_project
+
+
+def test_inject_working_set_empty_store(tmp_path: Path):
+    store = MemoryStore(tmp_path / "s")
+    ws = inject_working_set(store)
+    assert ws.per_project == {}
+    assert ws.mean_tokens == 0.0
+    assert ws.median_tokens == 0.0
+    assert ws.corpus_tokens == 0
     store.close()
