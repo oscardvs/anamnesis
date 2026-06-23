@@ -32,6 +32,11 @@ export async function seedStore(): Promise<SeededStore> {
     tags: ["seed", "e2e"],
     createdAt: "2026-06-22T00:00:00+00:00",
     updatedAt: "2026-06-22T00:00:00+00:00",
+    provSource: "human",
+    provModel: "",
+    provSession: "",
+    confidence: 1.0,
+    supersedes: "",
   };
   const rel = notePath(note.type, note.id);
   const file = join(home, "memory", rel);

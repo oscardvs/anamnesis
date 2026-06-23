@@ -96,6 +96,9 @@ function toMeta(row: MetaRow): MemoryMeta {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     tags: row.tagStr ? row.tagStr.split(TAG_SEP) : [],
+    provSource: "human",
+    confidence: 1.0,
+    provModel: "",
   };
 }
 

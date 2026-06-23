@@ -9,9 +9,9 @@
  * matters: it keeps ISO timestamps quoted, so when Python re-reads the file with
  * `yaml.safe_load` it gets strings back, not coerced `datetime` objects.
  */
-import YAML from "yaml";
+import YAML, { Scalar } from "yaml";
 
-import type { Memory, MemoryType, Scope } from "./types";
+import type { Memory, MemoryType, ProvSource, Scope } from "./types";
 
 const FM_DELIM = "---\n";
 
@@ -48,6 +48,11 @@ export function parseMemory(text: string): Memory {
     tags: Array.isArray(rawTags) ? rawTags.map(asString) : [],
     createdAt: asString(meta.created_at),
     updatedAt: asString(meta.updated_at),
+    provSource: (meta.prov_source != null ? asString(meta.prov_source) : "human") as ProvSource,
+    provModel: asString(meta.prov_model),
+    provSession: asString(meta.prov_session),
+    confidence: meta.confidence != null ? Number(meta.confidence) : 1.0,
+    supersedes: asString(meta.supersedes),
   };
 }
 
@@ -56,17 +61,27 @@ export function parseMemory(text: string): Memory {
  * `_serialize` (same key order, single quotes, unindented tag sequence).
  */
 export function serializeMemory(mem: Memory): string {
-  const front = {
+  // confidence must render as a YAML float ("1.0", not "1") to match PyYAML.
+  const confidence = new Scalar(mem.confidence);
+  confidence.minFractionDigits = 1;
+
+  const front: Record<string, unknown> = {
     id: mem.id,
     type: mem.type,
     title: mem.title,
     project: mem.project,
     machine_id: mem.machineId,
     scope: mem.scope,
-    created_at: mem.createdAt,
-    updated_at: mem.updatedAt,
-    tags: mem.tags,
+    prov_source: mem.provSource,
+    confidence,
   };
+  if (mem.provModel) front.prov_model = mem.provModel;
+  if (mem.provSession) front.prov_session = mem.provSession;
+  if (mem.supersedes) front.supersedes = mem.supersedes;
+  front.created_at = mem.createdAt;
+  front.updated_at = mem.updatedAt;
+  front.tags = mem.tags;
+
   const yamlStr = YAML.stringify(front, {
     version: "1.1",
     singleQuote: true,
