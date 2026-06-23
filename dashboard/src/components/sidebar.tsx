@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { GitCommitVertical, LayoutDashboard, Library, Plus, Server } from "lucide-react";
+import { GitCommitVertical, LayoutDashboard, Library, Plus, Server, Sparkles } from "lucide-react";
 
 import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import { shortProject } from "@/lib/format";
 const NAV = [
   { label: "Overview", href: "/", icon: LayoutDashboard },
   { label: "Browse", href: "/browse", icon: Library },
+  { label: "Review", href: "/review", icon: Sparkles },
   { label: "History", href: "/history", icon: GitCommitVertical },
   { label: "Machines", href: "/machines", icon: Server },
 ];
@@ -21,12 +22,14 @@ const NAV = [
 export function Sidebar() {
   const pathname = usePathname();
   const [projects, setProjects] = useState<[string, number][]>([]);
+  const [pending, setPending] = useState(0);
 
   useEffect(() => {
     fetch("/api/overview", { cache: "no-store" })
       .then((r) => r.json())
-      .then((d: { stats?: { byProject?: Record<string, number> } }) => {
+      .then((d: { stats?: { byProject?: Record<string, number> }; pendingReflections?: number }) => {
         setProjects(Object.entries(d.stats?.byProject ?? {}));
+        setPending(d.pendingReflections ?? 0);
       })
       .catch(() => {});
   }, []);
@@ -66,6 +69,11 @@ export function Sidebar() {
                 className={active ? "text-accent" : "text-faint"}
               />
               {item.label}
+              {item.href === "/review" && pending > 0 && (
+                <span className="ml-auto inline-flex min-w-5 items-center justify-center rounded-full bg-warn/15 px-1.5 text-[10px] font-semibold text-warn">
+                  {pending}
+                </span>
+              )}
             </Link>
           );
         })}
