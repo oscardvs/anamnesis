@@ -48,7 +48,8 @@ export function CliPreviewButton({
     setRunning(true);
     try {
       const r = await post(false);
-      setOutput(r.output || "Nothing to do.");
+      const output = r.output ?? "";
+      setOutput(output || "Nothing to do.");
     } catch {
       toast.error(`${label} failed`, { description: "Could not reach the anamnesis CLI." });
     } finally {
@@ -60,19 +61,20 @@ export function CliPreviewButton({
     setApplying(true);
     try {
       const r = await post(true);
-      if (r.output.includes(NO_PROVIDER)) {
+      const output = r.output ?? "";
+      if (output.includes(NO_PROVIDER)) {
         toast.error("No reflection provider configured", {
           description: "Set ANAMNESIS_REFLECTION_PROVIDER + model/base-url and DEEPSEEK_API_KEY in the dashboard's environment.",
         });
-        setOutput(r.output);
+        setOutput(output);
         return;
       }
       if (!r.ok) {
-        toast.error(`${label} failed`, { description: r.output.slice(0, 200) });
-        setOutput(r.output);
+        toast.error(`${label} failed`, { description: output.slice(0, 200) });
+        setOutput(output);
         return;
       }
-      toast.success(`${label} applied`, { description: r.output.slice(0, 200) || undefined });
+      toast.success(`${label} applied`, { description: output.slice(0, 200) || undefined });
       setOutput(null);
       onApplied?.();
       router.refresh();
