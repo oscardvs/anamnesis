@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Inbox, Search, X } from "lucide-react";
 
+import { CliPreviewButton } from "@/components/cli-preview-button";
 import { NoteRow } from "@/components/note-row";
 import { EmptyState, Spinner } from "@/components/ui/misc";
 import { cn } from "@/lib/cn";
@@ -93,7 +94,7 @@ export function NoteBrowser({
       </div>
 
       {project && (
-        <div className="flex items-center gap-2 text-xs text-muted">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
           <span>Filtered to</span>
           <span className="font-mono text-text">{shortProject(project)}</span>
           <Link
@@ -102,6 +103,13 @@ export function NoteBrowser({
           >
             clear <X size={11} strokeWidth={2} />
           </Link>
+          <div className="ml-auto">
+            <CliPreviewButton
+              label="Reflect project"
+              endpoint="/api/reflect"
+              buildQuery={(a) => `project=${encodeURIComponent(project)}${a ? "&apply=1" : ""}`}
+            />
+          </div>
         </div>
       )}
 
