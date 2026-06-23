@@ -17,6 +17,16 @@ from pathlib import Path
 from anamnesis.capture import ParsedSession, parse_transcript, resolve_summarizer, write_episodic
 from anamnesis.config import resolve_claude_home, resolve_home, resolve_machine_id, resolve_remote
 from anamnesis.dedup import apply_dedup, plan_dedup
+from anamnesis.eval import (
+    append_candidates,
+    baseline_to_dict,
+    build_eval_candidates,
+    load_eval_set,
+    render_baseline,
+    render_experiment,
+    run_baseline,
+    run_reflection_experiment,
+)
 from anamnesis.inject import render_inject, resolve_project_key, select_inject
 from anamnesis.migrate import apply_migration, plan_migration
 from anamnesis.native_import import ImportResult, import_native
@@ -78,6 +88,23 @@ def build_parser() -> argparse.ArgumentParser:
     pref.add_argument("--project", default=None)
     pref.add_argument("--apply", action="store_true")
     pref.add_argument("--no-sync", action="store_true")
+    pev = sub.add_parser(
+        "eval", help="measure recall + working-set shrink (build | run | experiment)"
+    )
+    evsub = pev.add_subparsers(dest="eval_command")
+    evb = evsub.add_parser("build", help="generate candidate eval cases via the LLM (then curate)")
+    evb.add_argument("--eval-set", dest="eval_set", default=None)
+    evb.add_argument("--types", default="semantic,procedural")
+    evb.add_argument("--n", type=int, default=30)
+    evr = evsub.add_parser("run", help="report recall@k + inject token size on the current store")
+    evr.add_argument("--eval-set", dest="eval_set", default=None)
+    evr.add_argument("--include-unreviewed", dest="include_unreviewed", action="store_true")
+    evr.add_argument("--json", dest="as_json", action="store_true")
+    eve = evsub.add_parser(
+        "experiment", help="before/after reflect on a sandbox copy (LLM-gated; live store safe)"
+    )
+    eve.add_argument("--eval-set", dest="eval_set", default=None)
+    eve.add_argument("--include-unreviewed", dest="include_unreviewed", action="store_true")
     pin = sub.add_parser(
         "init", help="configure Claude Code (MCP + hooks), set up the store, and first sync"
     )
@@ -342,6 +369,97 @@ def cmd_reflect(args: argparse.Namespace) -> int:
     return 0
 
 
+def _eval_set_path(args: argparse.Namespace) -> Path:
+    if args.eval_set:
+        return Path(args.eval_set).expanduser()
+    return resolve_home() / "eval" / "eval.jsonl"
+
+
+def cmd_eval(args: argparse.Namespace) -> int:
+    """Dispatch the eval subcommand (build | run | experiment)."""
+    sub = getattr(args, "eval_command", None)
+    if sub == "build":
+        return _eval_build(args)
+    if sub == "run":
+        return _eval_run(args)
+    if sub == "experiment":
+        return _eval_experiment(args)
+    print("eval: specify a subcommand: build | run | experiment")
+    return 2
+
+
+def _eval_build(args: argparse.Namespace) -> int:
+    reflector = make_reflector()
+    if reflector is None:
+        print(
+            "eval build: no reflection provider configured "
+            "(set ANAMNESIS_REFLECTION_PROVIDER + model/base-url/key)"
+        )
+        return 0
+    types = tuple(t.strip() for t in args.types.split(",") if t.strip())
+    store = MemoryStore(resolve_home())
+    try:
+        cases = build_eval_candidates(
+            store, reflector.client, reflector.model_label, types=types, n=args.n
+        )
+        added = append_candidates(_eval_set_path(args), cases)
+        print(
+            f"eval build: wrote {added} candidate(s) to {_eval_set_path(args)} "
+            "(approved=false; curate before running)"
+        )
+    finally:
+        store.close()
+    return 0
+
+
+def _eval_run(args: argparse.Namespace) -> int:
+    path = _eval_set_path(args)
+    if not path.exists():
+        print(f"eval run: no eval set at {path} (run `anamnesis eval build` first)")
+        return 2
+    store = MemoryStore(resolve_home())
+    try:
+        cases, warnings = load_eval_set(
+            path, store=store, include_unreviewed=args.include_unreviewed
+        )
+        for w in warnings:
+            print(f"eval run: warning: {w}")
+        report = run_baseline(store, cases)
+        if args.as_json:
+            print(json.dumps(baseline_to_dict(report), indent=2))
+        else:
+            print(render_baseline(report))
+    finally:
+        store.close()
+    return 0
+
+
+def _eval_experiment(args: argparse.Namespace) -> int:
+    path = _eval_set_path(args)
+    if not path.exists():
+        print(f"eval experiment: no eval set at {path} (run `anamnesis eval build` first)")
+        return 2
+    reflector = make_reflector()
+    if reflector is None:
+        print(
+            "eval experiment: no reflection provider configured "
+            "(set ANAMNESIS_REFLECTION_PROVIDER + model/base-url/key)"
+        )
+        return 0
+    store = MemoryStore(resolve_home())
+    try:
+        cases, warnings = load_eval_set(
+            path, store=store, include_unreviewed=args.include_unreviewed
+        )
+        for w in warnings:
+            print(f"eval experiment: warning: {w}")
+        report = run_reflection_experiment(store, cases, reflector, machine_id=resolve_machine_id())
+        print(render_experiment(report))
+    finally:
+        store.close()
+    return 0
+
+
 def cmd_import(args: argparse.Namespace) -> int:
     """Import Claude Code's native memory, then sync unless --no-sync.
 
@@ -458,6 +576,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_backfill_provenance(args)
     if command == "reflect":
         return cmd_reflect(args)
+    if command == "eval":
+        return cmd_eval(args)
     if command == "import":
         return cmd_import(args)
     if command == "init":

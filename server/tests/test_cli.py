@@ -477,3 +477,60 @@ def test_cmd_reflect_apply_with_fake_reflector(tmp_path, monkeypatch, capsys):
     notes = store.list(project="p", type="semantic")
     assert len(notes) == 1 and notes[0].prov_source == "reflection"
     store.close()
+
+
+def test_eval_run_reports_recall(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "home"))
+    from anamnesis.cli import main
+    from anamnesis.eval import EvalCase, save_eval_set
+    from anamnesis.store import MemoryStore
+
+    store = MemoryStore(tmp_path / "home")
+    m = store.write(type="semantic", title="alpha topic", body="content", project="p")
+    store.close()
+    eval_path = tmp_path / "home" / "eval" / "eval.jsonl"
+    save_eval_set(eval_path, [EvalCase(query="alpha topic", relevant_ids=[m.id], approved=True)])
+
+    rc = main(["eval", "run"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "recall@1" in out
+
+
+def test_eval_run_missing_file_is_friendly(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "home"))
+    from anamnesis.cli import main
+
+    rc = main(["eval", "run"])
+    out = capsys.readouterr().out
+    assert rc == 2
+    assert "no eval set" in out.lower()
+
+
+def test_eval_build_no_provider_writes_nothing(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("ANAMNESIS_REFLECTION_PROVIDER", raising=False)
+    monkeypatch.delenv("ANAMNESIS_REFLECTION_MODEL", raising=False)
+    monkeypatch.delenv("ANAMNESIS_REFLECTION_BASE_URL", raising=False)
+    monkeypatch.delenv("ANAMNESIS_REFLECTION_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    from anamnesis.cli import main
+    from anamnesis.store import MemoryStore
+
+    MemoryStore(tmp_path / "home").close()
+    rc = main(["eval", "build"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "no reflection provider" in out.lower()
+    assert not (tmp_path / "home" / "eval" / "eval.jsonl").exists()
+
+
+def test_eval_no_subcommand_explains(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "home"))
+    from anamnesis.cli import main
+
+    rc = main(["eval"])
+    out = capsys.readouterr().out
+    assert rc == 2
+    assert "build" in out and "run" in out and "experiment" in out
