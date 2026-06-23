@@ -6,7 +6,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { closeDb } from "./db";
-import { parseMemory } from "./markdown";
+import { parseMemory, serializeMemory } from "./markdown";
 import { readNote, writeNote } from "./store";
 
 // writeNote orchestrates markdown write -> git commit -> reindex. We point the
@@ -118,6 +118,57 @@ describe("writeNote edit", () => {
 describe("readNote", () => {
   it("returns null for an unknown id", async () => {
     expect(await readNote("01KV000000000000000000000X")).toBeNull();
+  });
+});
+
+describe("writeNote provenance", () => {
+  it("preserves an existing note's provenance when the dashboard edits it", async () => {
+    // Seed a reflection note directly on disk (the CLI, not the dashboard, makes these).
+    const id = "01KV2V3G79X1VNYD9WC0Z83WDW";
+    const file = path.join(mem, "semantic", `${id}.md`);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(
+      file,
+      serializeMemory({
+        id,
+        type: "semantic",
+        title: "Distilled fact",
+        body: "prefer WAL",
+        project: "demo",
+        machineId: "testmachine",
+        scope: "portable",
+        tags: ["reflection"],
+        createdAt: "2026-06-01T00:00:00+00:00",
+        updatedAt: "2026-06-01T00:00:00+00:00",
+        provSource: "reflection",
+        provModel: "deepseek/v4-flash",
+        provSession: "",
+        confidence: 0.6,
+        supersedes: "",
+      }),
+      "utf-8",
+    );
+
+    await writeNote({
+      id,
+      type: "semantic",
+      title: "Distilled fact",
+      body: "prefer WAL",
+      project: "demo",
+      tags: ["reflection", "reviewed"],
+    });
+
+    const reread = await readNote(id);
+    expect(reread?.provSource).toBe("reflection");
+    expect(reread?.provModel).toBe("deepseek/v4-flash");
+    expect(reread?.confidence).toBe(0.6);
+    expect(reread?.tags).toEqual(["reflection", "reviewed"]);
+  });
+
+  it("defaults new notes to human / confidence 1.0", async () => {
+    const res = await writeNote({ type: "semantic", title: "t", body: "b" });
+    expect(res.memory.provSource).toBe("human");
+    expect(res.memory.confidence).toBe(1.0);
   });
 });
 
