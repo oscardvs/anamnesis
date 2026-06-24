@@ -69,7 +69,7 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_280px]">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_280px]">
         <Panel className="p-6 lg:p-7">
           {note.body.trim() ? (
             <Markdown>{note.body}</Markdown>
