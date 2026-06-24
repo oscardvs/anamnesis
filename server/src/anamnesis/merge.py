@@ -24,7 +24,7 @@ from anamnesis.llm_summarizer import (
     resolve_reflection_config,
 )
 from anamnesis.redact import redact
-from anamnesis.store import Memory, MemoryStore
+from anamnesis.store import Memory, MemoryStore, _utcnow
 
 _DEFAULT_MAX_CHARS = 480_000
 _DEFAULT_CONFIDENCE = 0.6
@@ -163,4 +163,64 @@ def make_merger() -> Merger | None:
         client=client,
         model_label=f"{cfg.provider}/{cfg.model}",
         max_chars=cfg.max_tokens * 4,
+    )
+
+
+@dataclass
+class MergeResult:
+    """Outcome of merging one project."""
+
+    project: str
+    groups_applied: int
+    notes_superseded: int
+    notes_synthesized: int
+
+
+def apply_merge(
+    store: MemoryStore,
+    project: str,
+    merger: Merger,
+    *,
+    machine_id: str,
+    confidence: float = _DEFAULT_CONFIDENCE,
+) -> MergeResult:
+    """Propose and apply merges for a project's durable notes.
+
+    The LLM call happens first; if it raises or fails validation, nothing is written
+    (no fallback). For 'keep', the survivor's supersedes grows by the group's ids
+    (additive union) and it is tagged 'merged'. For 'synthesize', a new note is written
+    with prov_source='merge' and all originals superseded.
+    """
+    notes = select_mergeable(store, project)
+    groups = merger.propose(notes)
+    superseded_count = 0
+    synthesized_count = 0
+    for group in groups:
+        if group.action == "keep":
+            keeper = store.get(group.keeper_id)
+            keeper.supersedes = sorted(set(keeper.supersedes) | set(group.superseded_ids))
+            keeper.tags = sorted(set(keeper.tags) | {"merged"})
+            keeper.updated_at = _utcnow()
+            store.put(keeper)
+        else:
+            store.write(
+                type=group.type,
+                title=group.title,
+                body=group.body,
+                project=project,
+                machine_id=machine_id,
+                scope="portable",
+                tags=["merge"],
+                prov_source="merge",
+                prov_model=merger.model_label,
+                confidence=confidence,
+                supersedes=list(group.superseded_ids),
+            )
+            synthesized_count += 1
+        superseded_count += len(group.superseded_ids)
+    return MergeResult(
+        project=project,
+        groups_applied=len(groups),
+        notes_superseded=superseded_count,
+        notes_synthesized=synthesized_count,
     )

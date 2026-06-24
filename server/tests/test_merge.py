@@ -1,3 +1,6 @@
+import json
+import re
+
 import pytest
 
 from anamnesis.merge import (
@@ -148,4 +151,109 @@ def test_select_mergeable_filters(tmp_path):
     assert old.id not in ids  # already superseded excluded
     assert all(m.type in ("semantic", "procedural") for m in select_mergeable(store, "p"))
     assert all(m.scope == "portable" for m in select_mergeable(store, "p"))
+    store.close()
+
+
+def _keep_first_client(system, user):
+    """A fake LLM: keep the first rendered note, supersede the rest. Reads ids from the prompt."""
+    ids = re.findall(r"## \[([^\]]+)\] \[", user)
+    if len(ids) < 2:
+        return "[]"
+    keeper, *rest = ids
+    return json.dumps([{"action": "keep", "keeper_id": keeper, "superseded_ids": rest}])
+
+
+def test_apply_merge_keep_sets_supersedes_and_tags(tmp_path):
+    from anamnesis.merge import apply_merge
+
+    store = MemoryStore(root=tmp_path)
+    a = store.write(type="semantic", title="A", body="same fact", project="p")
+    b = store.write(type="semantic", title="B", body="same fact, reworded", project="p")
+    merger = Merger(client=_keep_first_client, model_label="deepseek/test")
+    result = apply_merge(store, "p", merger, machine_id="m")
+
+    assert result.groups_applied == 1
+    assert result.notes_superseded == 1
+    assert result.notes_synthesized == 0
+    # the keeper now supersedes the other and is tagged merged; provenance unchanged
+    keeper_id = a.id if a.id != _superseded_one(store) else b.id
+    keeper = store.get(keeper_id)
+    assert keeper.supersedes == [_superseded_one(store)]
+    assert "merged" in keeper.tags
+    assert keeper.prov_source == "human"
+    store.close()
+
+
+def _superseded_one(store):
+    return next(iter(store.superseded_ids()))
+
+
+def test_apply_merge_keep_is_additive(tmp_path):
+    from anamnesis.merge import apply_merge
+
+    store = MemoryStore(root=tmp_path)
+    a = store.write(type="semantic", title="A", body="x", project="p", supersedes=["pre-existing"])
+    b = store.write(type="semantic", title="B", body="y", project="p")
+
+    def client(system, user):
+        return json.dumps([{"action": "keep", "keeper_id": a.id, "superseded_ids": [b.id]}])
+
+    apply_merge(store, "p", Merger(client=client, model_label="t"), machine_id="m")
+    assert store.get(a.id).supersedes == sorted(["pre-existing", b.id])
+    store.close()
+
+
+def test_apply_merge_synthesize_writes_merge_note(tmp_path):
+    from anamnesis.merge import apply_merge
+
+    store = MemoryStore(root=tmp_path)
+    a = store.write(type="semantic", title="A", body="part one", project="p")
+    b = store.write(type="semantic", title="B", body="part two", project="p")
+
+    def client(system, user):
+        return json.dumps(
+            [
+                {
+                    "action": "synthesize",
+                    "type": "semantic",
+                    "title": "Combined",
+                    "body": "part one and part two",
+                    "superseded_ids": [a.id, b.id],
+                }
+            ]
+        )
+
+    result = apply_merge(
+        store, "p", Merger(client=client, model_label="deepseek/test"), machine_id="m"
+    )
+    assert result.notes_synthesized == 1
+    assert result.notes_superseded == 2
+    synth = [m for m in store.list(project="p", type="semantic") if m.title == "Combined"]
+    assert len(synth) == 1
+    note = synth[0]
+    assert note.prov_source == "merge"
+    assert note.confidence == 0.6
+    assert "merge" in note.tags
+    assert sorted(note.supersedes) == sorted([a.id, b.id])
+    # originals are now hidden from search but still listed
+    assert {m.id for m in store.search("part", project="p")}.isdisjoint({a.id, b.id})
+    assert {a.id, b.id}.issubset({m.id for m in store.list(project="p")})
+    store.close()
+
+
+def test_apply_merge_client_error_writes_nothing(tmp_path):
+    from anamnesis.merge import apply_merge
+
+    store = MemoryStore(root=tmp_path)
+    store.write(type="semantic", title="A", body="x", project="p")
+    store.write(type="semantic", title="B", body="y", project="p")
+    before = store.stats().total
+
+    def boom(system, user):
+        raise TimeoutError("down")
+
+    with pytest.raises(TimeoutError):
+        apply_merge(store, "p", Merger(client=boom, model_label="t"), machine_id="m")
+    assert store.stats().total == before
+    assert store.superseded_ids() == set()
     store.close()
