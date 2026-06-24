@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json as _json2
+import re as _re2
 from pathlib import Path
 
 import pytest
@@ -10,6 +12,7 @@ from anamnesis.eval import (
     BaselineReport,
     EvalCase,
     ExperimentReport,
+    MergeExperimentReport,
     append_candidates,
     baseline_to_dict,
     build_eval_candidates,
@@ -19,11 +22,14 @@ from anamnesis.eval import (
     recall_at_k,
     render_baseline,
     render_experiment,
+    render_merge_experiment,
     run_baseline,
+    run_merge_experiment,
     run_reflection_experiment,
     sandbox_store,
     save_eval_set,
 )
+from anamnesis.merge import Merger
 from anamnesis.reflect import Reflector
 from anamnesis.store import MemoryStore
 
@@ -362,3 +368,84 @@ def test_render_experiment_flags_regression():
     assert "REGRESSION" in text
     assert report.recall_regressed is True
     assert report.inject_delta_pct < 0
+
+
+def _keep_first_merger() -> Merger:
+    def client(system: str, user: str) -> str:
+        ids = _re2.findall(r"## \[([^\]]+)\] \[", user)
+        if len(ids) < 2:
+            return "[]"
+        keeper, *rest = ids
+        return _json2.dumps([{"action": "keep", "keeper_id": keeper, "superseded_ids": rest}])
+
+    return Merger(client=client, model_label="fake/model")
+
+
+def test_merge_experiment_shrinks_inject_and_preserves_recall(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_MERGE_MIN_DURABLE", "2")
+    store = MemoryStore(tmp_path / "s")
+    # Project p: several big durable notes that will collapse (keep one, supersede rest).
+    for i in range(4):
+        store.write(type="semantic", title=f"p-note {i}", body="redundant " * 60, project="p")
+    # Project q: a single note below the threshold, never merged; the recall target.
+    target = store.write(type="semantic", title="WAL lock topic", body="distinct", project="q")
+    cases = [EvalCase(query="WAL lock topic", relevant_ids=[target.id])]
+    before_total = store.stats().total
+
+    report = run_merge_experiment(store, cases, _keep_first_merger(), machine_id="m", ks=(1, 3))
+
+    assert report.after.working_set.per_project["p"] < report.before.working_set.per_project["p"]
+    assert not report.recall_regressed
+    assert report.merged.get("p", 0) >= 1
+    assert "q" in report.skipped  # below threshold, untouched
+    # The live store was not mutated by the experiment.
+    assert store.stats().total == before_total
+    assert store.superseded_ids() == set()
+    store.close()
+
+
+def test_merge_experiment_skips_below_threshold(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_MERGE_MIN_DURABLE", "5")
+    store = MemoryStore(tmp_path / "s")
+    store.write(type="semantic", title="only one", body="b", project="p")
+    report = run_merge_experiment(store, [], _keep_first_merger(), machine_id="m", ks=(1,))
+    assert "p" in report.skipped
+    assert report.merged == {}
+    store.close()
+
+
+def test_merge_experiment_records_failed_project(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_MERGE_MIN_DURABLE", "2")
+    store = MemoryStore(tmp_path / "s")
+    for i in range(2):
+        store.write(type="semantic", title=f"n{i}", body="x", project="p")
+    before_total = store.stats().total
+
+    def boom(system: str, user: str) -> str:
+        raise RuntimeError("boom")
+
+    report = run_merge_experiment(
+        store, [], Merger(client=boom, model_label="fake/model"), machine_id="m", ks=(1,)
+    )
+    assert "p" in report.failed
+    assert "p" not in report.merged
+    text = render_merge_experiment(report)
+    assert "failed" in text and "p" in text
+    assert store.stats().total == before_total
+    store.close()
+
+
+def test_render_merge_experiment_flags_regression():
+    from anamnesis.eval import BaselineReport, RecallReport, WorkingSetReport
+
+    before = BaselineReport(
+        recall=RecallReport(1, {1: 1.0}, 1.0),
+        working_set=WorkingSetReport({"p": 100}, 100.0, 100.0, 1000),
+    )
+    after = BaselineReport(
+        recall=RecallReport(1, {1: 0.0}, 0.0),
+        working_set=WorkingSetReport({"p": 50}, 50.0, 50.0, 1000),
+    )
+    report = MergeExperimentReport(before=before, after=after, merged={"p": 1}, skipped=[], ks=(1,))
+    assert report.recall_regressed
+    assert "REGRESSION" in render_merge_experiment(report)

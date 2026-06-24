@@ -21,6 +21,7 @@ from typing import Any
 
 from anamnesis.inject import render_inject, select_inject
 from anamnesis.llm_summarizer import LLMClient, _strip_fences, _window
+from anamnesis.merge import Merger, apply_merge, resolve_min_durable, select_mergeable
 from anamnesis.redact import redact
 from anamnesis.reflect import Reflector, apply_reflection, resolve_min_episodics, select_unreflected
 from anamnesis.store import Memory, MemoryStore
@@ -358,6 +359,16 @@ def baseline_to_dict(report: BaselineReport) -> dict[str, object]:
     }
 
 
+def _inject_delta_pct(before: BaselineReport, after: BaselineReport) -> float:
+    b = before.working_set.mean_tokens
+    a = after.working_set.mean_tokens
+    return (100.0 * (a - b) / b) if b else 0.0
+
+
+def _recall_regressed(before: BaselineReport, after: BaselineReport, ks: tuple[int, ...]) -> bool:
+    return any(after.recall.recall_at[k] < before.recall.recall_at[k] for k in ks)
+
+
 @dataclass
 class ExperimentReport:
     """Before/after-reflection measurement (computed on a sandbox copy)."""
@@ -371,15 +382,11 @@ class ExperimentReport:
 
     @property
     def inject_delta_pct(self) -> float:
-        b = self.before.working_set.mean_tokens
-        a = self.after.working_set.mean_tokens
-        return (100.0 * (a - b) / b) if b else 0.0
+        return _inject_delta_pct(self.before, self.after)
 
     @property
     def recall_regressed(self) -> bool:
-        return any(
-            self.after.recall.recall_at[k] < self.before.recall.recall_at[k] for k in self.ks
-        )
+        return _recall_regressed(self.before, self.after, self.ks)
 
 
 def run_reflection_experiment(
@@ -444,4 +451,89 @@ def render_experiment(report: ExperimentReport) -> str:
         )
     if report.recall_regressed:
         lines.append("WARNING: recall regressed after reflection")
+    return "\n".join(lines)
+
+
+@dataclass
+class MergeExperimentReport:
+    """Before/after-merge measurement (computed on a sandbox copy)."""
+
+    before: BaselineReport
+    after: BaselineReport
+    merged: dict[str, int]  # project -> merge groups applied
+    skipped: list[str]  # projects skipped (below the durable threshold)
+    ks: tuple[int, ...]
+    failed: list[str] = field(default_factory=list)  # projects that errored during merge
+
+    @property
+    def inject_delta_pct(self) -> float:
+        return _inject_delta_pct(self.before, self.after)
+
+    @property
+    def recall_regressed(self) -> bool:
+        return _recall_regressed(self.before, self.after, self.ks)
+
+
+def run_merge_experiment(
+    store: MemoryStore,
+    cases: Sequence[EvalCase],
+    merger: Merger,
+    *,
+    machine_id: str,
+    ks: tuple[int, ...] = (1, 3, 5, 8),
+) -> MergeExperimentReport:
+    """Measure recall + working set before and after ``merge --apply`` on a sandbox copy.
+
+    The live store is never touched: all merging happens on a throwaway copy.
+    """
+    with sandbox_store(store) as sandbox:
+        before = run_baseline(sandbox, cases, ks)
+        min_durable = resolve_min_durable()
+        projects = sorted({m.project for m in sandbox.list(scope="portable")})
+        merged: dict[str, int] = {}
+        skipped: list[str] = []
+        failed: list[str] = []
+        for project in projects:
+            if len(select_mergeable(sandbox, project)) < min_durable:
+                skipped.append(project)
+                continue
+            try:
+                result = apply_merge(sandbox, project, merger, machine_id=machine_id)
+            except Exception as exc:  # noqa: BLE001 - one project must not kill the experiment
+                print(f"experiment: {project}: merge failed ({exc}); skipped")
+                failed.append(project)
+                continue
+            merged[project] = result.groups_applied
+        after = run_baseline(sandbox, cases, ks)
+    return MergeExperimentReport(
+        before=before, after=after, merged=merged, skipped=skipped, ks=ks, failed=failed
+    )
+
+
+def render_merge_experiment(report: MergeExperimentReport) -> str:
+    """A readable before/after merge text report."""
+    bw, aw = report.before.working_set, report.after.working_set
+    br, ar = report.before.recall, report.after.recall
+    lines = ["merge experiment (sandbox copy; live store untouched)", ""]
+    lines.append(
+        f"inject tokens (mean/project): {bw.mean_tokens:.0f} -> {aw.mean_tokens:.0f} "
+        f"({report.inject_delta_pct:+.1f}%)"
+    )
+    lines.append("recall:")
+    for k in report.ks:
+        flag = " REGRESSION" if ar.recall_at[k] < br.recall_at[k] else ""
+        lines.append(f"  recall@{k}: {br.recall_at[k]:.3f} -> {ar.recall_at[k]:.3f}{flag}")
+    lines.append(f"  mrr: {br.mrr:.3f} -> {ar.mrr:.3f}")
+    total = sum(report.merged.values())
+    lines.append(
+        f"merged: {len(report.merged)} project(s), {total} group(s) applied; "
+        f"skipped {len(report.skipped)} below-threshold project(s)"
+    )
+    if report.failed:
+        lines.append(
+            f"failed: {len(report.failed)} project(s) errored during merge: "
+            f"{', '.join(report.failed)}"
+        )
+    if report.recall_regressed:
+        lines.append("WARNING: recall regressed after merge")
     return "\n".join(lines)
