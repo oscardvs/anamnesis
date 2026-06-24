@@ -191,3 +191,116 @@ def update_store_config(home: Path, updates: dict[str, Any]) -> None:
     if isinstance(config.get("reflection"), dict) and not config["reflection"]:
         config.pop("reflection")
     save_store_config(home, config)
+
+
+_PROVIDERS = ("heuristic", "deepseek", "openai", "local")
+KNOWN_KEYS = (
+    "machine_id",
+    "remote",
+    "reflection.provider",
+    "reflection.model",
+    "reflection.base_url",
+    "reflection.api_key",
+    "reflection.timeout",
+    "reflection.max_tokens",
+)
+
+
+def validate_setting(key: str, value: str) -> Any:
+    """Validate and coerce a setting value; raise ValueError on a bad key or value."""
+    if key not in KNOWN_KEYS:
+        raise ValueError(f"unknown setting '{key}' (known: {', '.join(KNOWN_KEYS)})")
+    if key == "reflection.provider":
+        if value.lower() not in _PROVIDERS:
+            raise ValueError(f"provider must be one of: {', '.join(_PROVIDERS)}")
+        return value.lower()
+    if key == "reflection.timeout":
+        try:
+            return float(value)
+        except ValueError:
+            raise ValueError("timeout must be a number") from None
+    if key == "reflection.max_tokens":
+        try:
+            return int(value)
+        except ValueError:
+            raise ValueError("max_tokens must be an integer") from None
+    if key == "reflection.base_url" and not value.startswith(("http://", "https://")):
+        raise ValueError("base_url must start with http:// or https://")
+    return value
+
+
+def mask_key(value: str) -> str:
+    if not value:
+        return ""
+    return f"{value[:3]}...{value[-2:]}" if len(value) > 6 else "set"
+
+
+def _source(env_names: tuple[str, ...], file_present: bool) -> str:
+    if any(os.environ.get(n) for n in env_names):
+        return "env"
+    return "file" if file_present else "default"
+
+
+def get_setting(key: str) -> str:
+    """The resolved raw value of one setting (for ``config get``; key returned raw)."""
+    if key == "machine_id":
+        return resolve_machine_id()
+    if key == "remote":
+        return resolve_remote() or ""
+    s = resolve_reflection_settings()
+    table = {
+        "reflection.provider": s.provider,
+        "reflection.model": s.model,
+        "reflection.base_url": s.base_url,
+        "reflection.api_key": s.api_key,
+        "reflection.timeout": str(s.timeout),
+        "reflection.max_tokens": str(s.max_tokens),
+    }
+    if key in table:
+        return table[key]
+    raise ValueError(f"unknown setting '{key}'")
+
+
+def settings_view() -> dict[str, Any]:
+    """An effective-settings view with the api key masked (never the raw key)."""
+    s = resolve_reflection_settings()
+    block = _reflection_block()
+    top = _store_config()
+    return {
+        "machine_id": {
+            "value": resolve_machine_id(),
+            "source": _source(("ANAMNESIS_MACHINE_ID",), "machine_id" in top),
+        },
+        "remote": {
+            "value": resolve_remote() or "",
+            "source": _source(("ANAMNESIS_GIT_REMOTE",), "remote" in top),
+        },
+        "reflection": {
+            "provider": {
+                "value": s.provider,
+                "source": _source(("ANAMNESIS_REFLECTION_PROVIDER",), "provider" in block),
+            },
+            "model": {
+                "value": s.model,
+                "source": _source(("ANAMNESIS_REFLECTION_MODEL",), "model" in block),
+            },
+            "base_url": {
+                "value": s.base_url,
+                "source": _source(("ANAMNESIS_REFLECTION_BASE_URL",), "base_url" in block),
+            },
+            "timeout": {
+                "value": s.timeout,
+                "source": _source(("ANAMNESIS_REFLECTION_TIMEOUT",), "timeout" in block),
+            },
+            "max_tokens": {
+                "value": s.max_tokens,
+                "source": _source(("ANAMNESIS_REFLECTION_MAX_TOKENS",), "max_tokens" in block),
+            },
+            "api_key_set": bool(s.api_key),
+            "api_key_preview": mask_key(s.api_key),
+            "api_key_source": _source(
+                ("ANAMNESIS_REFLECTION_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY"),
+                "api_key" in block,
+            ),
+        },
+    }

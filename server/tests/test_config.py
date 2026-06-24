@@ -3,6 +3,8 @@ import os
 import stat
 from pathlib import Path
 
+import pytest
+
 import anamnesis.config as config
 from anamnesis.config import (
     resolve_claude_home,
@@ -164,3 +166,45 @@ def test_save_store_config_atomic_no_temp_left(tmp_path):
     config.save_store_config(tmp_path, {"machine_id": "x"})
     leftovers = [p.name for p in tmp_path.iterdir() if p.name.startswith(".tmp-anamnesis-")]
     assert leftovers == []
+
+
+def test_validate_setting_rejects_unknown_and_bad_values():
+    with pytest.raises(ValueError):
+        config.validate_setting("reflection.nope", "x")
+    with pytest.raises(ValueError):
+        config.validate_setting("reflection.provider", "gpt")
+    with pytest.raises(ValueError):
+        config.validate_setting("reflection.timeout", "soon")
+    with pytest.raises(ValueError):
+        config.validate_setting("reflection.base_url", "api.deepseek.com")
+    assert config.validate_setting("reflection.provider", "DeepSeek") == "deepseek"
+    assert config.validate_setting("reflection.timeout", "45") == 45.0
+    assert config.validate_setting("reflection.max_tokens", "90000") == 90000
+
+
+def test_mask_key():
+    assert config.mask_key("") == ""
+    assert config.mask_key("short") == "set"
+    assert config.mask_key("sk-abcdef") == "sk-...ef"
+
+
+def test_settings_view_masks_key_and_reports_source(tmp_path, monkeypatch):
+    for var in (
+        "ANAMNESIS_REFLECTION_PROVIDER",
+        "ANAMNESIS_REFLECTION_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "OPENAI_API_KEY",
+        "ANAMNESIS_REFLECTION_MODEL",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path))
+    config.update_store_config(
+        tmp_path, {"reflection.provider": "deepseek", "reflection.api_key": "sk-abcdef"}
+    )
+    monkeypatch.setenv("ANAMNESIS_REFLECTION_MODEL", "m-env")
+    view = config.settings_view()
+    assert "sk-abcdef" not in json.dumps(view)  # raw key never present
+    assert view["reflection"]["api_key_set"] is True
+    assert view["reflection"]["api_key_preview"] == "sk-...ef"
+    assert view["reflection"]["provider"]["source"] == "file"
+    assert view["reflection"]["model"]["source"] == "env"
