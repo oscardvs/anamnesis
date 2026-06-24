@@ -4,6 +4,7 @@ import { ArrowUpRight, GitCommitVertical, Layers, Network, TriangleAlert } from 
 import { CommitGraph } from "@/components/commit-graph";
 import { CountUp } from "@/components/count-up";
 import { HeroCanvas } from "@/components/hero-canvas";
+import { MemoryMap } from "@/components/memory-map";
 import { NoteRow } from "@/components/note-row";
 import { ReindexButton } from "@/components/reindex-button";
 import { StatusDot } from "@/components/ui/badges";
@@ -194,15 +195,7 @@ export default async function OverviewPage() {
             drag to pan · scroll to zoom · click a node
           </span>
         </div>
-        <div
-          className="relative flex h-[60vh] max-h-[520px] min-h-[360px] items-center justify-center overflow-hidden rounded-3xl border border-line shadow-[var(--shadow)]"
-          style={{
-            background:
-              "radial-gradient(120% 120% at 50% 38%, color-mix(in oklab, var(--accent) 8%, var(--surface)), var(--surface))",
-          }}
-        >
-          <span className="text-sm text-faint">3D memory map loads here</span>
-        </div>
+        <MemoryMap />
       </section>
 
       {/* TWO COLUMN */}
