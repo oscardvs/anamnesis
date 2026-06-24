@@ -8,7 +8,15 @@ import { ArrowRight, Minus, Plus, X } from "lucide-react";
 
 import { cn } from "@/lib/cn";
 
-type GNode = { id: string; kind: "hub" | "mem"; project: string; type?: string; title?: string };
+type GNode = {
+  id: string;
+  kind: "hub" | "mem";
+  project: string;
+  type?: string;
+  title?: string;
+  tags?: string[];
+  excerpt?: string;
+};
 type Graph = { nodes: GNode[]; edges: [string, string][] };
 type TypeKey = "semantic" | "procedural" | "episodic";
 
@@ -25,6 +33,7 @@ const COLORS = {
 
 interface Engine {
   applyHidden(h: Record<TypeKey, boolean>): void;
+  setSelected(id: string | null): void;
   zoom(f: number): void;
   reset(): void;
   dispose(): void;
@@ -77,7 +86,6 @@ export function MemoryMap() {
         if (disposed || !canvasRef.current) return;
         engine = createEngine(THREE, canvasRef.current, graph, resolvedTheme === "dark" ? "dark" : "light", {
           onSelect: (n) => setSelected(n),
-          onOpen: open,
         });
         engine.applyHidden(hiddenRef.current);
         engineRef.current = engine;
@@ -90,7 +98,7 @@ export function MemoryMap() {
       engine?.dispose();
       engineRef.current = null;
     };
-  }, [graph, resolvedTheme, open]);
+  }, [graph, resolvedTheme]);
 
   useEffect(() => {
     engineRef.current?.applyHidden(hidden);
@@ -158,34 +166,75 @@ export function MemoryMap() {
           </div>
 
           {/* selected-node detail card */}
-          {selected && (
-            <div className="animate-rise absolute bottom-3 right-3 top-3 flex w-[280px] max-w-[calc(100%-1.5rem)] flex-col rounded-2xl border border-line-strong bg-surface/90 p-5 shadow-[var(--shadow)] backdrop-blur-xl">
-              <button
-                onClick={() => setSelected(null)}
-                aria-label="Close"
-                className="tap absolute right-3 top-3 flex size-6 items-center justify-center rounded-lg border border-line text-muted hover:text-text"
-              >
-                <X size={13} strokeWidth={2.2} />
-              </button>
-              <span className="mb-3 inline-flex w-fit items-center gap-1.5 rounded-full border border-line px-2.5 py-1 text-[10.5px] capitalize text-muted">
-                <span
-                  className="size-1.5 rounded-full"
-                  style={{ background: selected.type ? TYPE_VARS[selected.type as TypeKey] : "var(--accent)" }}
-                />
-                {selected.type ?? "note"}
-              </span>
-              <h3 className="font-display text-base font-semibold leading-snug text-text">
-                {selected.title ?? selected.id}
-              </h3>
-              <p className="mt-1.5 font-mono text-[11.5px] text-accent">{selected.project}</p>
-              <button
-                onClick={() => open(selected)}
-                className="bg-accent-gradient sheen tap mt-auto flex h-9 items-center justify-center gap-2 rounded-xl text-[13px] font-semibold text-accent-contrast"
-              >
-                Open note <ArrowRight size={14} strokeWidth={2} />
-              </button>
-            </div>
-          )}
+          {selected &&
+            (() => {
+              const isHub = selected.kind === "hub";
+              const memberCount = isHub
+                ? (graph?.nodes.filter((n) => n.kind === "mem" && n.project === selected.project)
+                    .length ?? 0)
+                : 0;
+              const closeCard = () => {
+                setSelected(null);
+                engineRef.current?.setSelected(null);
+              };
+              return (
+                <div className="animate-rise absolute bottom-3 right-3 top-3 flex w-[290px] max-w-[calc(100%-1.5rem)] flex-col rounded-2xl border border-line-strong bg-surface/90 p-5 shadow-[var(--shadow)] backdrop-blur-xl">
+                  <button
+                    onClick={closeCard}
+                    aria-label="Close"
+                    className="tap absolute right-3 top-3 flex size-6 items-center justify-center rounded-lg border border-line text-muted hover:text-text"
+                  >
+                    <X size={13} strokeWidth={2.2} />
+                  </button>
+                  <span className="mb-3 inline-flex w-fit items-center gap-1.5 rounded-full border border-line px-2.5 py-1 text-[10.5px] capitalize text-muted">
+                    <span
+                      className="size-1.5 rounded-full"
+                      style={{
+                        background:
+                          isHub || !selected.type
+                            ? "var(--accent)"
+                            : TYPE_VARS[selected.type as TypeKey],
+                      }}
+                    />
+                    {isHub ? "project region" : (selected.type ?? "note")}
+                  </span>
+                  <h3
+                    className={cn(
+                      "font-semibold leading-snug text-text",
+                      isHub ? "font-mono text-[15px]" : "font-display text-base",
+                    )}
+                  >
+                    {isHub ? selected.project : (selected.title ?? selected.id)}
+                  </h3>
+                  {!isHub && (
+                    <p className="mt-1.5 font-mono text-[11.5px] text-accent">{selected.project}</p>
+                  )}
+                  <p className="mt-3 line-clamp-5 text-[12.5px] leading-relaxed text-muted">
+                    {isHub
+                      ? `${memberCount} memories anchored to this project region. Click a node to read one, or open the region to browse them all.`
+                      : (selected.excerpt ?? "No preview available for this note.")}
+                  </p>
+                  {!isHub && selected.tags && selected.tags.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {selected.tags.slice(0, 4).map((t) => (
+                        <span
+                          key={t}
+                          className="rounded-md border border-line bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-muted"
+                        >
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => open(selected)}
+                    className="bg-accent-gradient sheen tap mt-auto flex h-9 items-center justify-center gap-2 rounded-xl text-[13px] font-semibold text-accent-contrast"
+                  >
+                    {isHub ? "Browse region" : "Open note"} <ArrowRight size={14} strokeWidth={2} />
+                  </button>
+                </div>
+              );
+            })()}
         </>
       )}
     </div>
@@ -234,7 +283,7 @@ function createEngine(
   canvas: HTMLCanvasElement,
   graph: Graph,
   theme: "dark" | "light",
-  cb: { onSelect: (n: GNode | null) => void; onOpen: (n: GNode) => void },
+  cb: { onSelect: (n: GNode | null) => void },
 ): Engine {
   const cols = COLORS[theme];
 
@@ -321,7 +370,10 @@ function createEngine(
 
   let hidden: Record<TypeKey, boolean> = { semantic: false, procedural: false, episodic: false };
   const isVis = (n: GNode) => n.kind === "hub" || !hidden[n.type as TypeKey];
-  let focusId: string | null = null;
+  // A clicked node stays focused (its card is open); hover focuses transiently.
+  let hoverId: string | null = null;
+  let selectedId: string | null = null;
+  const focused = () => selectedId ?? hoverId;
 
   const rebuildEdges = () => {
     const p: number[] = [];
@@ -337,9 +389,10 @@ function createEngine(
   };
   const rebuildHighlight = () => {
     const p: number[] = [];
-    if (focusId) {
+    const f = focused();
+    if (f) {
       for (const [a, b] of graph.edges) {
-        if (a !== focusId && b !== focusId) continue;
+        if (a !== f && b !== f) continue;
         const pa = pos.get(a);
         const pb = pos.get(b);
         if (pa && pb) p.push(pa[0], pa[1], pa[2], pb[0], pb[1], pb[2]);
@@ -348,7 +401,8 @@ function createEngine(
     hlGeo.setAttribute("position", new THREE.Float32BufferAttribute(p, 3));
   };
   const applyFocus = () => {
-    const neigh = focusId ? adj.get(focusId) : null;
+    const f = focused();
+    const neigh = f ? adj.get(f) : null;
     for (const m of meshes) {
       const n = nodeOf.get(m)!;
       const vis = isVis(n);
@@ -358,14 +412,14 @@ function createEngine(
       const base = baseOf.get(n.id) ?? 3;
       let sc = base;
       let op = 1;
-      if (focusId) {
-        if (n.id === focusId) sc = base * 1.8;
+      if (f) {
+        if (n.id === f) sc = base * 1.8;
         else if (neigh?.has(n.id)) op = 1;
         else op = 0.14;
       }
       m.scale.setScalar(sc);
       m.material.opacity = op;
-      if (glow) glow.material.opacity = focusId ? (n.id === focusId ? 0.95 : 0.12) : 0.5;
+      if (glow) glow.material.opacity = f ? (n.id === f ? 0.95 : 0.12) : 0.5;
     }
     rebuildHighlight();
   };
@@ -419,8 +473,8 @@ function createEngine(
     setNdc(e);
     const m = pick();
     const id = m ? nodeOf.get(m)!.id : null;
-    if (id !== focusId) {
-      focusId = id;
+    if (id !== hoverId) {
+      hoverId = id;
       canvas.style.cursor = m ? "pointer" : "grab";
       applyFocus();
     }
@@ -433,12 +487,14 @@ function createEngine(
     setNdc(e);
     const m = pick();
     const n = m ? nodeOf.get(m)! : null;
-    if (n && n.kind === "hub") cb.onOpen(n);
-    else cb.onSelect(n);
+    // A click selects the node (opens its card); navigation happens from the card.
+    selectedId = n ? n.id : null;
+    applyFocus();
+    cb.onSelect(n);
   };
   const onLeave = () => {
-    if (focusId) {
-      focusId = null;
+    if (hoverId) {
+      hoverId = null;
       applyFocus();
     }
   };
@@ -479,6 +535,10 @@ function createEngine(
     applyHidden(h) {
       hidden = h;
       rebuildEdges();
+      applyFocus();
+    },
+    setSelected(id) {
+      selectedId = id;
       applyFocus();
     },
     zoom(f) {
