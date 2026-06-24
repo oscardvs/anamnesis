@@ -59,6 +59,33 @@ def test_search_finds_by_keyword_in_title_or_body(tmp_path):
     assert miss.id not in ids
 
 
+def test_search_recalls_on_partial_overlap_not_only_full_match(tmp_path):
+    """A multi-word query recalls a note that shares SOME of its words.
+
+    Recall is OR over the tokens, ranked by BM25, not an AND of every token: a
+    natural-language query containing a word the note lacks must still surface the
+    note (an AND-of-all-tokens match would return nothing).
+    """
+    store = MemoryStore(root=tmp_path)
+    hit = store.write(
+        type="procedural",
+        title="Use WAL mode for SQLite",
+        body="Set busy_timeout on every connection to avoid lock errors.",
+        project="p",
+        machine_id="d",
+    )
+    # Shares SQLite/connection/avoid/lock/errors with the note, but also has
+    # configure/concurrent/writes, which it lacks: AND-of-all would match nothing.
+    ids = [
+        m.id
+        for m in store.search(
+            "how to configure a SQLite connection to avoid lock errors on concurrent writes",
+            k=8,
+        )
+    ]
+    assert hit.id in ids
+
+
 def test_search_is_scoped_by_project(tmp_path):
     store = MemoryStore(root=tmp_path)
     alpha = store.write(

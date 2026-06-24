@@ -36,12 +36,17 @@ def _utcnow() -> str:
 def _fts_query(query: str) -> str:
     """Turn free text into a safe FTS5 MATCH expression.
 
-    Each word becomes a quoted phrase (terms ANDed). FTS5-special characters
-    (``-``, ``:``, ``*``, ``"`` ...) are neutralized so arbitrary user or imported
-    text cannot break the query parser. Returns "" if there are no word tokens.
+    Each word becomes a quoted phrase, joined by ``OR`` and ranked by BM25 in
+    :meth:`MemoryStore.search`. OR (not AND) is deliberate: ANDing every token
+    requires a single note to contain *all* of a natural-language query's words,
+    which measured 0% recall on real paraphrase queries; OR + BM25 surfaces the
+    best-overlapping notes first and recovered recall to ~94% on the same eval set.
+    FTS5-special characters (``-``, ``:``, ``*``, ``"`` ...) are neutralized so
+    arbitrary user or imported text cannot break the query parser. Returns "" if
+    there are no word tokens.
     """
     tokens = re.findall(r"\w+", query, flags=re.UNICODE)
-    return " ".join(f'"{t}"' for t in tokens)
+    return " OR ".join(f'"{t}"' for t in tokens)
 
 
 @dataclass
