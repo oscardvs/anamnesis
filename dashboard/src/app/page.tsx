@@ -199,7 +199,7 @@ export default async function OverviewPage() {
       </section>
 
       {/* TWO COLUMN */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.55fr_1fr]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
         <div>
           <div className="mb-3 flex items-center justify-between px-1">
             <h2 className="flex items-center gap-2 font-display text-[15px] font-semibold text-text">
