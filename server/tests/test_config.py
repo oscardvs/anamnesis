@@ -1,4 +1,6 @@
 import json
+import os
+import stat
 from pathlib import Path
 
 import anamnesis.config as config
@@ -138,3 +140,27 @@ def test_provider_defaults_to_heuristic(tmp_path, monkeypatch):
     monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path))
     monkeypatch.delenv("ANAMNESIS_REFLECTION_PROVIDER", raising=False)
     assert config.resolve_reflection_provider() == "heuristic"
+
+
+def test_update_store_config_sets_nested_and_perms(tmp_path):
+    config.update_store_config(tmp_path, {"machine_id": "m1", "reflection.provider": "deepseek"})
+    config.update_store_config(tmp_path, {"reflection.model": "deepseek-v4-flash"})
+    data = json.loads((tmp_path / "config.json").read_text())
+    assert data["machine_id"] == "m1"
+    assert data["reflection"] == {"provider": "deepseek", "model": "deepseek-v4-flash"}
+    mode = stat.S_IMODE(os.stat(tmp_path / "config.json").st_mode)
+    assert mode == 0o600
+
+
+def test_update_store_config_unset_removes_key(tmp_path):
+    config.update_store_config(tmp_path, {"reflection.api_key": "sk-x", "reflection.model": "m"})
+    config.update_store_config(tmp_path, {"reflection.api_key": config.UNSET})
+    data = json.loads((tmp_path / "config.json").read_text())
+    assert "api_key" not in data["reflection"]
+    assert data["reflection"]["model"] == "m"
+
+
+def test_save_store_config_atomic_no_temp_left(tmp_path):
+    config.save_store_config(tmp_path, {"machine_id": "x"})
+    leftovers = [p.name for p in tmp_path.iterdir() if p.name.startswith(".tmp-anamnesis-")]
+    assert leftovers == []

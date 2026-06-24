@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import socket
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -30,6 +32,14 @@ def resolve_claude_home() -> Path:
     return Path(raw).expanduser() if raw else Path.home() / ".claude"
 
 
+def _read_config(home: Path) -> dict[str, Any]:
+    try:
+        data = json.loads((home / "config.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def _store_config() -> dict[str, Any]:
     """Best-effort read of the per-store ``config.json`` (machine-local, never synced).
 
@@ -37,11 +47,7 @@ def _store_config() -> dict[str, Any]:
     synced ``memory/`` repo (the remote URL differs per machine). Missing or
     malformed files yield ``{}`` so resolution never fails on a bad config.
     """
-    try:
-        data = json.loads((resolve_home() / "config.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    return _read_config(resolve_home())
 
 
 def _config_str(key: str) -> str | None:
@@ -132,3 +138,56 @@ def resolve_reflection_settings() -> ReflectionSettings:
             _float_setting("ANAMNESIS_REFLECTION_MAX_TOKENS", block.get("max_tokens"), 120000.0)
         ),
     )
+
+
+UNSET = object()  # sentinel: passed as an update value to remove a key
+
+
+def save_store_config(home: Path, config: dict[str, Any]) -> None:
+    """Atomically write config.json (temp + replace) with owner-only (0600) perms.
+
+    Backs up an existing file to ``config.json.bak`` once. The key may live here,
+    so the file must never be group/world readable.
+    """
+    home.mkdir(parents=True, exist_ok=True)
+    path = home / "config.json"
+    bak = path.with_name("config.json.bak")
+    if path.exists() and not bak.exists():
+        shutil.copy2(path, bak)
+    text = json.dumps(config, indent=2) + "\n"
+    fd, tmp = tempfile.mkstemp(dir=str(home), prefix=".tmp-anamnesis-")
+    try:
+        os.chmod(tmp, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+
+
+def update_store_config(home: Path, updates: dict[str, Any]) -> None:
+    """Apply dotted-key updates to config.json, then save atomically.
+
+    ``"reflection.model": "x"`` sets a nested value; ``"reflection.model": UNSET``
+    removes it (pruning an emptied ``reflection`` block).
+    """
+    config = _read_config(home)
+    for dotted, value in updates.items():
+        parts = dotted.split(".")
+        node = config
+        for key in parts[:-1]:
+            child = node.get(key)
+            if not isinstance(child, dict):
+                child = {}
+                node[key] = child
+            node = child
+        leaf = parts[-1]
+        if value is UNSET:
+            node.pop(leaf, None)
+        else:
+            node[leaf] = value
+    if isinstance(config.get("reflection"), dict) and not config["reflection"]:
+        config.pop("reflection")
+    save_store_config(home, config)

@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from anamnesis.config import update_store_config
 from anamnesis.store import MemoryStore
 from anamnesis.sync import GitSyncBackend, SyncError
 
@@ -239,18 +240,15 @@ def write_settings(path: Path, data: dict[str, Any]) -> None:
 
 
 def write_store_config(home: Path, *, machine_id: str, remote: str | None) -> None:
-    """Persist machine-local config so any launch of the server/CLI finds the remote.
+    """Persist machine-local config (machine id + remote) atomically, perms 0600.
 
-    Lives at ``<home>/config.json``, outside the synced ``memory/`` repo (the
-    remote URL differs per machine, so this must never sync). ``config.resolve_*``
-    read it as a fallback; env vars still take precedence. This is what lets the
-    MCP server (launched without inline env) push on ``memory_sync``.
+    Merges into any existing config.json (never clobbers a reflection block).
+    Lives at ``<home>/config.json``, outside the synced ``memory/`` repo.
     """
-    home.mkdir(parents=True, exist_ok=True)
-    cfg: dict[str, str] = {"machine_id": machine_id}
+    updates: dict[str, object] = {"machine_id": machine_id}
     if remote:
-        cfg["remote"] = remote
-    (home / "config.json").write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+        updates["remote"] = remote
+    update_store_config(home, updates)
 
 
 Prompt = Callable[[str, str], str]
