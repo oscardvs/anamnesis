@@ -298,14 +298,14 @@ def test_serialize_roundtrip_preserves_provenance():
         prov_model="deepseek/m",
         prov_session="s1",
         confidence=0.5,
-        supersedes="old-id",
+        supersedes=["old-id"],
     )
     back = _deserialize(_serialize(mem))
     assert back.prov_source == "reflection"
     assert back.prov_model == "deepseek/m"
     assert back.prov_session == "s1"
     assert back.confidence == 0.5
-    assert back.supersedes == "old-id"
+    assert back.supersedes == ["old-id"]
 
 
 def test_deserialize_defaults_missing_provenance():
@@ -322,7 +322,7 @@ def test_deserialize_defaults_missing_provenance():
     assert mem.prov_source == "human"
     assert mem.confidence == 1.0
     assert mem.prov_model == ""
-    assert mem.supersedes == ""
+    assert mem.supersedes == []
 
 
 def test_write_indexes_provenance(tmp_path):
@@ -387,14 +387,14 @@ def test_open_migrates_old_index_db(tmp_path):
     store = MemoryStore(root=tmp_path)  # opening triggers the migration
     row = store._db.execute("SELECT prov_source FROM memories WHERE id = 'n1'").fetchone()
     assert row is not None and row["prov_source"] == "human"  # reindexed with defaults
-    assert store._db.execute("PRAGMA user_version").fetchone()[0] == 1
+    assert store._db.execute("PRAGMA user_version").fetchone()[0] == 2
     store.close()
 
 
 def test_superseded_ids_returns_referenced_ids(tmp_path):
     store = MemoryStore(root=tmp_path)
     old = store.write(type="semantic", title="old", body="x")
-    store.write(type="semantic", title="new", body="y", supersedes=old.id)
+    store.write(type="semantic", title="new", body="y", supersedes=[old.id])
     assert store.superseded_ids() == {old.id}
     store.close()
 
@@ -410,9 +410,93 @@ def test_search_excludes_superseded_but_list_includes(tmp_path):
     store = MemoryStore(root=tmp_path)
     old = store.write(type="semantic", title="alpha widget", body="the widget facts")
     store.write(
-        type="semantic", title="alpha widget v2", body="the widget facts again", supersedes=old.id
+        type="semantic",
+        title="alpha widget v2",
+        body="the widget facts again",
+        supersedes=[old.id],
     )
     hit_ids = {m.id for m in store.search("widget", k=8)}
     assert old.id not in hit_ids  # superseded hidden from recall
     assert old.id in {m.id for m in store.list()}  # but still browsable
+    store.close()
+
+
+def test_supersedes_roundtrips_as_list():
+    mem = Memory(id="x", type="semantic", title="t", body="b", supersedes=["a", "b"])
+    back = _deserialize(_serialize(mem))
+    assert back.supersedes == ["a", "b"]
+
+
+def test_deserialize_tolerates_legacy_scalar_supersedes():
+    text = (
+        "---\n"
+        "id: a\ntype: semantic\ntitle: t\nproject: global\nmachine_id: m\n"
+        "scope: portable\nprov_source: human\nconfidence: 1.0\n"
+        "supersedes: old-id\n"
+        "created_at: '2026-01-01T00:00:00+00:00'\n"
+        "updated_at: '2026-01-01T00:00:00+00:00'\n"
+        "tags: []\n"
+        "---\nbody\n"
+    )
+    mem = _deserialize(text)
+    assert mem.supersedes == ["old-id"]
+
+
+def test_index_writes_one_row_per_superseded_id(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    a = store.write(type="semantic", title="a", body="x")
+    b = store.write(type="semantic", title="b", body="y")
+    store.write(type="semantic", title="c", body="z", supersedes=[a.id, b.id])
+    rows = store._db.execute("SELECT superseded_id FROM memory_supersedes").fetchall()
+    assert {r["superseded_id"] for r in rows} == {a.id, b.id}
+    assert store.superseded_ids() == {a.id, b.id}
+    store.close()
+
+
+def test_write_accepts_merge_prov_source(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    mem = store.write(type="semantic", title="t", body="b", prov_source="merge", confidence=0.6)
+    assert store.get(mem.id).prov_source == "merge"
+    store.close()
+
+
+_V1_SCHEMA = """
+CREATE TABLE memories (id TEXT PRIMARY KEY,
+  type TEXT NOT NULL CHECK (type IN ('procedural','semantic','episodic')),
+  title TEXT NOT NULL, body_path TEXT NOT NULL, project TEXT NOT NULL DEFAULT 'global',
+  machine_id TEXT NOT NULL,
+  scope TEXT NOT NULL DEFAULT 'portable' CHECK (scope IN ('portable','machine-local')),
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+  prov_source TEXT NOT NULL DEFAULT 'human'
+    CHECK (prov_source IN ('human','session-end','reflection','import')),
+  prov_model TEXT, prov_session TEXT, confidence REAL NOT NULL DEFAULT 1.0, supersedes TEXT);
+CREATE TABLE memory_tags (memory_id TEXT, tag TEXT, PRIMARY KEY (memory_id, tag));
+CREATE VIRTUAL TABLE memories_fts USING fts5(id UNINDEXED, title, body, tags);
+"""
+
+_V1_NOTE = (
+    "---\n"
+    "id: v1\ntype: semantic\ntitle: V1 note\nproject: global\nmachine_id: m\n"
+    "scope: portable\nprov_source: human\nconfidence: 1.0\n"
+    "created_at: '2026-01-01T00:00:00+00:00'\n"
+    "updated_at: '2026-01-01T00:00:00+00:00'\n"
+    "tags: []\n"
+    "---\nbody\n"
+)
+
+
+def test_open_migrates_v1_index_to_v2(tmp_path):
+    (tmp_path / "memory" / "semantic").mkdir(parents=True)
+    (tmp_path / "memory" / "semantic" / "v1.md").write_text(_V1_NOTE, encoding="utf-8")
+    db = sqlite3.connect(tmp_path / "index.db")
+    db.executescript(_V1_SCHEMA)
+    db.execute("PRAGMA user_version = 1")
+    db.commit()
+    db.close()
+
+    store = MemoryStore(root=tmp_path)  # opening triggers the 1->2 migration
+    assert store._db.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert {m.id for m in store.list()} == {"v1"}  # note survived the rebuild
+    count = store._db.execute("SELECT COUNT(*) AS c FROM memory_supersedes").fetchone()["c"]
+    assert count == 0
     store.close()

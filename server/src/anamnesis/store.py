@@ -49,6 +49,22 @@ def _fts_query(query: str) -> str:
     return " OR ".join(f'"{t}"' for t in tokens)
 
 
+def _as_id_list(value: object) -> list[str]:
+    """Normalize a front-matter supersedes value to a list of ids.
+
+    Tolerates a legacy bare string (pre-schema-2 markdown and notes synced from a
+    machine on the old schema carried a scalar) and a missing value, so reading old
+    notes never breaks.
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value] if value else []
+    if isinstance(value, list):
+        return [str(v) for v in value]
+    return [str(value)]
+
+
 @dataclass
 class Memory:
     """A single memory note. Mirrors the markdown front-matter (architecture §3)."""
@@ -67,7 +83,7 @@ class Memory:
     prov_model: str = ""
     prov_session: str = ""
     confidence: float = 1.0
-    supersedes: str = ""
+    supersedes: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -128,7 +144,7 @@ def _deserialize(text: str) -> Memory:
         prov_model=meta.get("prov_model", ""),
         prov_session=meta.get("prov_session", ""),
         confidence=float(meta.get("confidence", 1.0)),
-        supersedes=meta.get("supersedes", ""),
+        supersedes=_as_id_list(meta.get("supersedes")),
     )
 
 
@@ -144,11 +160,10 @@ CREATE TABLE IF NOT EXISTS memories (
   created_at   TEXT NOT NULL,
   updated_at   TEXT NOT NULL,
   prov_source  TEXT NOT NULL DEFAULT 'human'
-               CHECK (prov_source IN ('human','session-end','reflection','import')),
+               CHECK (prov_source IN ('human','session-end','reflection','import','merge')),
   prov_model   TEXT,
   prov_session TEXT,
-  confidence   REAL NOT NULL DEFAULT 1.0,
-  supersedes   TEXT
+  confidence   REAL NOT NULL DEFAULT 1.0
 );
 CREATE INDEX IF NOT EXISTS idx_mem_scope   ON memories(project, type, scope);
 CREATE INDEX IF NOT EXISTS idx_mem_recency ON memories(updated_at DESC);
@@ -160,12 +175,18 @@ CREATE TABLE IF NOT EXISTS memory_tags (
   PRIMARY KEY (memory_id, tag)
 );
 
+CREATE TABLE IF NOT EXISTS memory_supersedes (
+  memory_id     TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+  superseded_id TEXT NOT NULL,
+  PRIMARY KEY (memory_id, superseded_id)
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
   id UNINDEXED, title, body, tags, tokenize='porter unicode61'
 );
 """
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 
 
 class MemoryStore:
@@ -197,6 +218,7 @@ class MemoryStore:
             self._db.executescript(
                 "DROP TABLE IF EXISTS memories;"
                 "DROP TABLE IF EXISTS memory_tags;"
+                "DROP TABLE IF EXISTS memory_supersedes;"
                 "DROP TABLE IF EXISTS memories_fts;"
             )
         self._db.executescript(_SCHEMA)
@@ -223,7 +245,7 @@ class MemoryStore:
         prov_model: str = "",
         prov_session: str = "",
         confidence: float = 1.0,
-        supersedes: str = "",
+        supersedes: list[str] | None = None,
     ) -> Memory:
         """Create a memory: write the markdown file, then index it."""
         now = _utcnow()
@@ -242,7 +264,7 @@ class MemoryStore:
             prov_model=prov_model,
             prov_session=prov_session,
             confidence=confidence,
-            supersedes=supersedes,
+            supersedes=list(supersedes or []),
         )
         rel_path = f"{mem.type}/{mem.id}.md"
         abs_path = self._dir_for_scope(mem.scope) / rel_path
@@ -303,10 +325,7 @@ class MemoryStore:
         if scope is not None:
             sql.append("AND m.scope = ?")
             params.append(scope)
-        sql.append(
-            "AND m.id NOT IN "
-            "(SELECT supersedes FROM memories WHERE supersedes IS NOT NULL AND supersedes <> '')"
-        )
+        sql.append("AND m.id NOT IN (SELECT superseded_id FROM memory_supersedes)")
         sql.append("ORDER BY bm25(memories_fts), m.updated_at DESC LIMIT ?")
         params.append(k)
         rows = self._db.execute(" ".join(sql), params).fetchall()
@@ -370,15 +389,14 @@ class MemoryStore:
 
     def superseded_ids(self) -> set[str]:
         """Ids of notes replaced by another note's ``supersedes`` (hidden from recall)."""
-        rows = self._db.execute(
-            "SELECT supersedes FROM memories WHERE supersedes IS NOT NULL AND supersedes <> ''"
-        ).fetchall()
-        return {r["supersedes"] for r in rows}
+        rows = self._db.execute("SELECT DISTINCT superseded_id FROM memory_supersedes").fetchall()
+        return {r["superseded_id"] for r in rows}
 
     def reindex(self) -> int:
         """Rebuild the entire SQLite index from the markdown files. Returns count."""
         self._db.execute("DELETE FROM memories")
         self._db.execute("DELETE FROM memory_tags")
+        self._db.execute("DELETE FROM memory_supersedes")
         self._db.execute("DELETE FROM memories_fts")
         count = 0
         # The tree a note lives in is authoritative for its scope: memory/ is
@@ -402,8 +420,8 @@ class MemoryStore:
         self._db.execute(
             """INSERT OR REPLACE INTO memories
                (id, type, title, body_path, project, machine_id, scope, created_at, updated_at,
-                prov_source, prov_model, prov_session, confidence, supersedes)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                prov_source, prov_model, prov_session, confidence)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 mem.id,
                 mem.type,
@@ -418,13 +436,17 @@ class MemoryStore:
                 mem.prov_model or None,
                 mem.prov_session or None,
                 mem.confidence,
-                mem.supersedes or None,
             ),
         )
         self._db.execute("DELETE FROM memory_tags WHERE memory_id = ?", (mem.id,))
         self._db.executemany(
             "INSERT INTO memory_tags (memory_id, tag) VALUES (?, ?)",
             [(mem.id, t) for t in mem.tags],
+        )
+        self._db.execute("DELETE FROM memory_supersedes WHERE memory_id = ?", (mem.id,))
+        self._db.executemany(
+            "INSERT INTO memory_supersedes (memory_id, superseded_id) VALUES (?, ?)",
+            [(mem.id, sid) for sid in mem.supersedes],
         )
         self._db.execute("DELETE FROM memories_fts WHERE id = ?", (mem.id,))
         self._db.execute(

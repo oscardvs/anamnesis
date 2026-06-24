@@ -130,9 +130,9 @@ def test_resolve_project_key_marker_not_read_at_or_above_home(tmp_path, monkeypa
 def test_select_inject_excludes_superseded(tmp_path):
     store = MemoryStore(root=tmp_path)
     old = _write(store, type="semantic", title="old-fact", body="x", project="p")
-    _write(store, type="semantic", title="new-fact", body="y", project="p", supersedes=old.id)
+    _write(store, type="semantic", title="new-fact", body="y", project="p", supersedes=[old.id])
     g_old = _write(store, type="semantic", title="g-old", body="x", project="global")
-    _write(store, type="semantic", title="g-new", body="y", project="global", supersedes=g_old.id)
+    _write(store, type="semantic", title="g-new", body="y", project="global", supersedes=[g_old.id])
     ids = {m.id for m in select_inject(store, project="p", k=8)}
     assert old.id not in ids  # superseded project note hidden
     assert g_old.id not in ids  # superseded global note hidden
