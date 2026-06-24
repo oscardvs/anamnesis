@@ -170,3 +170,37 @@ def test_resolve_summarizer_deepseek_when_configured(monkeypatch):
 def test_resolve_summarizer_deepseek_falls_back_unconfigured(monkeypatch):
     _clear_keys(monkeypatch)
     assert isinstance(resolve_summarizer(), HeuristicSummarizer)
+
+
+def test_resolve_reflection_config_reads_config_json(tmp_path, monkeypatch):
+    for var in (
+        "ANAMNESIS_REFLECTION_PROVIDER",
+        "ANAMNESIS_REFLECTION_MODEL",
+        "ANAMNESIS_REFLECTION_BASE_URL",
+        "ANAMNESIS_REFLECTION_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "OPENAI_API_KEY",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path))
+    (tmp_path).mkdir(parents=True, exist_ok=True)
+    import json
+
+    (tmp_path / "config.json").write_text(
+        json.dumps(
+            {
+                "reflection": {
+                    "provider": "deepseek",
+                    "model": "m",
+                    "base_url": "https://x",
+                    "api_key": "sk-cfg",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    from anamnesis.llm_summarizer import resolve_reflection_config
+
+    cfg = resolve_reflection_config()
+    assert cfg.provider == "deepseek"
+    assert cfg.api_key == "sk-cfg"

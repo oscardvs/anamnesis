@@ -10,13 +10,13 @@ real transcript path at runtime.
 from __future__ import annotations
 
 import json
-import os
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
+from anamnesis import config
 from anamnesis.store import Memory, MemoryStore
 
 _EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
@@ -200,12 +200,13 @@ _SUMMARIZERS: dict[str, Callable[[], Summarizer]] = {
 
 
 def resolve_summarizer() -> Summarizer:
-    """Pick the summarizer from ``ANAMNESIS_REFLECTION_PROVIDER`` (default heuristic).
+    """Pick the summarizer from the resolved reflection provider (default heuristic).
 
-    v0 only ships the deterministic summarizer; an LLM-backed reflection model
-    (architecture section 6) registers here later with no call-site changes.
+    The provider resolves env > config.json > 'heuristic' via ``config.py``. v0 only
+    ships the deterministic summarizer; an LLM-backed reflection model (architecture
+    section 6) registers here later with no call-site changes.
     """
-    provider = os.environ.get("ANAMNESIS_REFLECTION_PROVIDER", "heuristic").lower()
+    provider = config.resolve_reflection_provider()
     return _SUMMARIZERS.get(provider, _make_heuristic)()
 
 
