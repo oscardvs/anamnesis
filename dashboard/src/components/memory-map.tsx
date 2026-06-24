@@ -27,8 +27,8 @@ const TYPE_VARS: Record<TypeKey, string> = {
 };
 
 const COLORS = {
-  dark: { semantic: 0x8da4ff, procedural: 0x4fd39a, episodic: 0xc79bff, accent: 0xb79bff, edge: 0xa896ff, glow: 0xb79bff },
-  light: { semantic: 0x4361d8, procedural: 0x1f9e63, episodic: 0xb23fd0, accent: 0x6a40d8, edge: 0x7a52e0, glow: 0x6a40d8 },
+  dark: { semantic: 0x7aa2ff, procedural: 0x4ade80, episodic: 0xe085ff, accent: 0xb79bff, edge: 0x9a86ff, glow: 0xb79bff, fog: 0x141019 },
+  light: { semantic: 0x2f56e0, procedural: 0x0f9d52, episodic: 0xc026d3, accent: 0x6a40d8, edge: 0x9a83ea, glow: 0x6a40d8, fog: 0xeae8f4 },
 };
 
 interface Engine {
@@ -41,6 +41,7 @@ interface Engine {
 
 export function MemoryMap() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const labelsRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const { resolvedTheme } = useTheme();
   const [graph, setGraph] = useState<Graph | null>(null);
@@ -84,9 +85,14 @@ export function MemoryMap() {
       try {
         const THREE = await import("three");
         if (disposed || !canvasRef.current) return;
-        engine = createEngine(THREE, canvasRef.current, graph, resolvedTheme === "dark" ? "dark" : "light", {
-          onSelect: (n) => setSelected(n),
-        });
+        engine = createEngine(
+          THREE,
+          canvasRef.current,
+          labelsRef.current,
+          graph,
+          resolvedTheme === "dark" ? "dark" : "light",
+          { onSelect: (n) => setSelected(n) },
+        );
         engine.applyHidden(hiddenRef.current);
         engineRef.current = engine;
       } catch {
@@ -130,6 +136,7 @@ export function MemoryMap() {
       ) : (
         <>
           <canvas ref={canvasRef} className="absolute inset-0 size-full touch-none" style={{ cursor: "grab" }} />
+          <div ref={labelsRef} className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden />
 
           {/* type filter chips */}
           <div className="absolute left-3 top-3 flex flex-wrap gap-1.5">
@@ -281,11 +288,18 @@ function makeGlow(THREE: ThreeNs) {
 function createEngine(
   THREE: ThreeNs,
   canvas: HTMLCanvasElement,
+  labelLayer: HTMLElement | null,
   graph: Graph,
   theme: "dark" | "light",
   cb: { onSelect: (n: GNode | null) => void },
 ): Engine {
   const cols = COLORS[theme];
+
+  // Member count per project, so hubs can be sized by how much they hold.
+  const memberCount = new Map<string, number>();
+  for (const n of graph.nodes) {
+    if (n.kind === "mem") memberCount.set(n.project, (memberCount.get(n.project) ?? 0) + 1);
+  }
 
   // Layout: project hubs on a Fibonacci sphere, members scattered around their hub.
   const hubs = graph.nodes.filter((n) => n.kind === "hub");
@@ -309,6 +323,8 @@ function createEngine(
   const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   const scene = new THREE.Scene();
+  // Distance fog gives the cloud real depth (near nodes crisp, far ones recede).
+  scene.fog = new THREE.Fog(cols.fog, 240, 760);
   const camera = new THREE.PerspectiveCamera(55, 1, 1, 5000);
   const group = new THREE.Group();
   scene.add(group);
@@ -332,7 +348,7 @@ function createEngine(
     const m = new THREE.Mesh(geo, mat) as Mesh;
     const p = pos.get(n.id) ?? [0, 0, 0];
     m.position.set(p[0], p[1], p[2]);
-    const base = n.kind === "hub" ? 6 : 3;
+    const base = n.kind === "hub" ? 5 + Math.min(7, (memberCount.get(n.project) ?? 0) / 16) : 3;
     m.scale.setScalar(base);
     nodeOf.set(m, n);
     baseOf.set(n.id, base);
@@ -351,7 +367,7 @@ function createEngine(
         }),
       );
       sp.position.copy(m.position);
-      sp.scale.setScalar(40);
+      sp.scale.setScalar(base * 5.5);
       group.add(sp);
       glowOf.set(n.id, sp);
     }
@@ -425,6 +441,43 @@ function createEngine(
   };
   rebuildEdges();
   applyFocus();
+
+  // Project the project name next to each hub as a crisp HTML label.
+  const labels: { el: HTMLDivElement; id: string }[] = [];
+  if (labelLayer) {
+    labelLayer.innerHTML = "";
+    for (const h of hubs) {
+      const el = document.createElement("div");
+      el.textContent = h.project.replace(/^github\.com\//, "");
+      el.style.cssText =
+        "position:absolute;left:0;top:0;white-space:nowrap;font-family:var(--font-geist-mono),monospace;" +
+        "font-size:10px;font-weight:600;letter-spacing:.02em;color:var(--muted);" +
+        "background:color-mix(in oklab,var(--surface) 70%,transparent);border:1px solid var(--line);" +
+        "border-radius:6px;padding:1px 6px;transform:translate(-9999px,-9999px);will-change:transform,opacity;" +
+        "transition:opacity .2s ease;";
+      labelLayer.appendChild(el);
+      labels.push({ el, id: h.id });
+    }
+  }
+  const labelVec = new THREE.Vector3();
+  const updateLabels = () => {
+    if (!labels.length) return;
+    const w = canvas.clientWidth;
+    const hgt = canvas.clientHeight;
+    for (const { el, id } of labels) {
+      const m = meshById.get(id);
+      if (!m) continue;
+      m.getWorldPosition(labelVec).project(camera);
+      if (labelVec.z > 1 || labelVec.z < -1) {
+        el.style.opacity = "0";
+        continue;
+      }
+      const x = (labelVec.x * 0.5 + 0.5) * w;
+      const y = (-labelVec.y * 0.5 + 0.5) * hgt;
+      el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -150%)`;
+      el.style.opacity = "0.92";
+    }
+  };
 
   let radius = 430;
   const rot = { x: -0.18, y: 0.5 };
@@ -519,14 +572,21 @@ function createEngine(
   const ro = new ResizeObserver(resize);
   ro.observe(canvas);
 
+  const fog = scene.fog as import("three").Fog;
   let raf = 0;
   const tick = () => {
-    if (!dragging) rot.y += 0.0016;
+    // Idle gentle spin; pause while interacting or inspecting a node.
+    if (!dragging && !hoverId && !selectedId) rot.y += 0.0011;
     group.rotation.x = rot.x;
     group.rotation.y = rot.y;
     camera.position.set(0, 0, radius);
     camera.lookAt(0, 0, 0);
+    if (fog) {
+      fog.near = radius * 0.5;
+      fog.far = radius * 1.7;
+    }
     renderer.render(scene, camera);
+    updateLabels();
     raf = requestAnimationFrame(tick);
   };
   tick();
@@ -565,6 +625,7 @@ function createEngine(
       edgeMat.dispose();
       hlMat.dispose();
       glowTex.dispose();
+      if (labelLayer) labelLayer.innerHTML = "";
       try {
         renderer.dispose();
       } catch {
