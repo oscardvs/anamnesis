@@ -24,7 +24,9 @@ from anamnesis.eval import (
     load_eval_set,
     render_baseline,
     render_experiment,
+    render_merge_experiment,
     run_baseline,
+    run_merge_experiment,
     run_reflection_experiment,
 )
 from anamnesis.inject import render_inject, resolve_project_key, select_inject
@@ -113,6 +115,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     eve.add_argument("--eval-set", dest="eval_set", default=None)
     eve.add_argument("--include-unreviewed", dest="include_unreviewed", action="store_true")
+    eve.add_argument("--merge", dest="as_merge", action="store_true")
     pin = sub.add_parser(
         "init", help="configure Claude Code (MCP + hooks), set up the store, and first sync"
     )
@@ -517,6 +520,12 @@ def _eval_experiment(args: argparse.Namespace) -> int:
     if not path.exists():
         print(f"eval experiment: no eval set at {path} (run `anamnesis eval build` first)")
         return 2
+    if getattr(args, "as_merge", False):
+        return _eval_experiment_merge(args, path)
+    return _eval_experiment_reflect(args, path)
+
+
+def _eval_experiment_reflect(args: argparse.Namespace, path: Path) -> int:
     reflector = make_reflector()
     if reflector is None:
         print(
@@ -533,6 +542,28 @@ def _eval_experiment(args: argparse.Namespace) -> int:
             print(f"eval experiment: warning: {w}")
         report = run_reflection_experiment(store, cases, reflector, machine_id=resolve_machine_id())
         print(render_experiment(report))
+    finally:
+        store.close()
+    return 0
+
+
+def _eval_experiment_merge(args: argparse.Namespace, path: Path) -> int:
+    merger = make_merger()
+    if merger is None:
+        print(
+            "eval experiment: no reflection provider configured "
+            "(set ANAMNESIS_REFLECTION_PROVIDER + model/base-url/key)"
+        )
+        return 0
+    store = MemoryStore(resolve_home())
+    try:
+        cases, warnings = load_eval_set(
+            path, store=store, include_unreviewed=args.include_unreviewed
+        )
+        for w in warnings:
+            print(f"eval experiment: warning: {w}")
+        report = run_merge_experiment(store, cases, merger, machine_id=resolve_machine_id())
+        print(render_merge_experiment(report))
     finally:
         store.close()
     return 0

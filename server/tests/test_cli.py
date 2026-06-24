@@ -600,3 +600,43 @@ def test_cmd_merge_apply_writes_and_supersedes(tmp_path, monkeypatch, capsys):
     store = MemoryStore(root=tmp_path / "store")
     assert len(store.superseded_ids()) == 2  # 3 notes -> keep 1, supersede 2
     store.close()
+
+
+def test_eval_experiment_merge_dispatches(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("ANAMNESIS_MERGE_MIN_DURABLE", "2")
+    from anamnesis.eval import EvalCase, save_eval_set
+
+    store = MemoryStore(tmp_path / "home")
+    _seed_durable(store, "p", 3)
+    target = store.write(type="semantic", title="keep target", body="z", project="q")
+    store.close()
+    save_eval_set(
+        tmp_path / "home" / "eval" / "eval.jsonl",
+        [EvalCase(query="keep target", relevant_ids=[target.id], approved=True)],
+    )
+
+    monkeypatch.setattr("anamnesis.cli.make_merger", _fake_merger)
+    rc = main(["eval", "experiment", "--merge"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "merge experiment" in out
+
+
+def test_eval_experiment_merge_no_provider(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("ANAMNESIS_REFLECTION_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    from anamnesis.eval import EvalCase, save_eval_set
+
+    store = MemoryStore(tmp_path / "home")
+    m = store.write(type="semantic", title="t", body="b", project="p")
+    store.close()
+    save_eval_set(
+        tmp_path / "home" / "eval" / "eval.jsonl",
+        [EvalCase(query="t", relevant_ids=[m.id], approved=True)],
+    )
+    rc = main(["eval", "experiment", "--merge"])
+    assert rc == 0
+    assert "no reflection provider" in capsys.readouterr().out.lower()
