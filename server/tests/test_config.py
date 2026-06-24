@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import anamnesis.config as config
 from anamnesis.config import (
     resolve_claude_home,
     resolve_home,
@@ -79,3 +80,61 @@ def test_server_reexports_resolvers_stay_importable():
     from anamnesis.server import resolve_home as rh
 
     assert rh is rc
+
+
+def _write_cfg(home: Path, data: dict) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "config.json").write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_reflection_settings_from_file_when_env_unset(tmp_path, monkeypatch):
+    for var in (
+        "ANAMNESIS_REFLECTION_PROVIDER",
+        "ANAMNESIS_REFLECTION_MODEL",
+        "ANAMNESIS_REFLECTION_BASE_URL",
+        "ANAMNESIS_REFLECTION_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "OPENAI_API_KEY",
+        "ANAMNESIS_REFLECTION_TIMEOUT",
+        "ANAMNESIS_REFLECTION_MAX_TOKENS",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path))
+    _write_cfg(
+        tmp_path,
+        {
+            "reflection": {
+                "provider": "DeepSeek",
+                "model": "deepseek-v4-flash",
+                "base_url": "https://api.deepseek.com",
+                "api_key": "sk-file",
+                "timeout": 45,
+                "max_tokens": 90000,
+            }
+        },
+    )
+    s = config.resolve_reflection_settings()
+    assert s.provider == "deepseek"
+    assert s.model == "deepseek-v4-flash"
+    assert s.base_url == "https://api.deepseek.com"
+    assert s.api_key == "sk-file"
+    assert s.timeout == 45.0
+    assert s.max_tokens == 90000
+
+
+def test_env_overrides_file_and_defaults_fill_gaps(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path))
+    _write_cfg(tmp_path, {"reflection": {"provider": "deepseek", "model": "m-file"}})
+    monkeypatch.setenv("ANAMNESIS_REFLECTION_MODEL", "m-env")
+    monkeypatch.delenv("ANAMNESIS_REFLECTION_TIMEOUT", raising=False)
+    s = config.resolve_reflection_settings()
+    assert s.model == "m-env"  # env wins
+    assert s.provider == "deepseek"  # file used when env unset
+    assert s.timeout == 30.0  # default fills the gap
+    assert s.max_tokens == 120000
+
+
+def test_provider_defaults_to_heuristic(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path))
+    monkeypatch.delenv("ANAMNESIS_REFLECTION_PROVIDER", raising=False)
+    assert config.resolve_reflection_provider() == "heuristic"

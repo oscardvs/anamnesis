@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -67,3 +68,67 @@ def resolve_remote() -> str | None:
     ``memory_sync`` pushes rather than only committing locally.
     """
     return os.environ.get("ANAMNESIS_GIT_REMOTE") or _config_str("remote")
+
+
+@dataclass(frozen=True)
+class ReflectionSettings:
+    """Merged reflection/LLM config: env var > config.json reflection.* > default."""
+
+    provider: str
+    model: str
+    base_url: str
+    api_key: str
+    timeout: float
+    max_tokens: int
+
+
+def _reflection_block() -> dict[str, Any]:
+    block = _store_config().get("reflection")
+    return block if isinstance(block, dict) else {}
+
+
+def _as_str(value: Any) -> str:
+    return value if isinstance(value, str) and value else ""
+
+
+def _float_setting(env_name: str, file_value: Any, default: float) -> float:
+    raw: Any = os.environ.get(env_name)
+    if raw is None:
+        raw = file_value
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return default
+
+
+def resolve_reflection_provider() -> str:
+    """The reflection provider: env > config.json > 'heuristic' (lowercased)."""
+    raw = (
+        os.environ.get("ANAMNESIS_REFLECTION_PROVIDER")
+        or _as_str(_reflection_block().get("provider"))
+        or "heuristic"
+    )
+    return raw.lower()
+
+
+def resolve_reflection_settings() -> ReflectionSettings:
+    """Full reflection config with env > file > default precedence per field."""
+    block = _reflection_block()
+    api_key = (
+        os.environ.get("ANAMNESIS_REFLECTION_API_KEY")
+        or os.environ.get("DEEPSEEK_API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
+        or _as_str(block.get("api_key"))
+    )
+    return ReflectionSettings(
+        provider=resolve_reflection_provider(),
+        model=os.environ.get("ANAMNESIS_REFLECTION_MODEL") or _as_str(block.get("model")),
+        base_url=os.environ.get("ANAMNESIS_REFLECTION_BASE_URL") or _as_str(block.get("base_url")),
+        api_key=api_key,
+        timeout=_float_setting("ANAMNESIS_REFLECTION_TIMEOUT", block.get("timeout"), 30.0),
+        max_tokens=int(
+            _float_setting("ANAMNESIS_REFLECTION_MAX_TOKENS", block.get("max_tokens"), 120000.0)
+        ),
+    )
