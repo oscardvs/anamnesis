@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { GitCommitVertical, Pencil } from "lucide-react";
+import { ArrowLeft, GitCommitVertical, Pencil } from "lucide-react";
 
 import { Markdown } from "@/components/markdown";
 import { ProvenanceBadge, TypeBadge } from "@/components/ui/badges";
@@ -32,6 +32,13 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
   return (
     <div className="animate-rise space-y-6">
       <div className="flex flex-col gap-4">
+        <Link
+          href="/browse"
+          className="group inline-flex w-fit items-center gap-1.5 text-[12.5px] text-muted transition-colors hover:text-text"
+        >
+          <ArrowLeft size={14} strokeWidth={2} className="transition-transform group-hover:-translate-x-0.5" />
+          Back to browse
+        </Link>
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
           <TypeBadge type={note.type} />
           <ProvenanceBadge source={note.provSource} confidence={note.confidence} />
@@ -43,7 +50,7 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
           </Link>
         </div>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <h1 className="text-balance text-2xl font-semibold tracking-tight text-text">
+          <h1 className="text-balance font-display text-[1.7rem] font-semibold leading-tight tracking-tight text-text">
             {note.title || "(untitled)"}
           </h1>
           <div className="flex shrink-0 items-center gap-2">
