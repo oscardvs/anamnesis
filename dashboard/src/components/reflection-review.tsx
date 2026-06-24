@@ -44,7 +44,7 @@ export function ReflectionReview({ initialNotes }: { initialNotes: MemoryMeta[] 
   }
 
   return (
-    <div className="rounded-2xl bezel bg-surface p-1.5">
+    <div className="rounded-2xl bezel bg-surface p-1.5 shadow-[var(--shadow)]">
       <div className="divide-y divide-line">
         {notes.map((note) => (
           <div key={note.id} className="flex items-start gap-3 px-3 py-3">
