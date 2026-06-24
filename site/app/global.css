@@ -1,0 +1,282 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-display: var(--font-space-grotesk), var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+
+  --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-contrast: var(--accent-contrast);
+  --color-accent-tint: var(--accent-tint);
+
+  --color-type-procedural: var(--type-procedural);
+  --color-type-semantic: var(--type-semantic);
+  --color-type-episodic: var(--type-episodic);
+}
+
+:root {
+  /* Recollection tokens (verbatim from dashboard/src/app/globals.css :root) */
+  --bg: oklch(0.972 0.006 280);
+  --surface: oklch(0.995 0.003 280);
+  --surface-2: oklch(0.948 0.008 280);
+  --text: oklch(0.245 0.03 280);
+  --muted: oklch(0.5 0.022 280);
+  --faint: oklch(0.64 0.02 280);
+  --line: oklch(0.245 0.03 280 / 0.1);
+  --line-strong: oklch(0.245 0.03 280 / 0.17);
+  --accent: oklch(0.52 0.22 281);
+  --accent-2: oklch(0.62 0.15 235);
+  --accent-strong: oklch(0.46 0.21 281);
+  --accent-contrast: oklch(0.99 0.012 280);
+  --accent-tint: oklch(0.52 0.22 281 / 0.1);
+  --type-procedural: oklch(0.6 0.14 165);
+  --type-semantic: oklch(0.55 0.17 258);
+  --type-episodic: oklch(0.56 0.2 322);
+
+  /* Fumadocs token mapping (drives links, sidebar, buttons, surfaces) */
+  --color-fd-background: var(--bg);
+  --color-fd-foreground: var(--text);
+  --color-fd-card: var(--surface);
+  --color-fd-card-foreground: var(--text);
+  --color-fd-popover: var(--surface);
+  --color-fd-popover-foreground: var(--text);
+  --color-fd-muted: var(--surface-2);
+  --color-fd-muted-foreground: var(--muted);
+  --color-fd-border: var(--line-strong);
+  --color-fd-primary: var(--accent);
+  --color-fd-primary-foreground: var(--accent-contrast);
+  --color-fd-secondary: var(--surface-2);
+  --color-fd-secondary-foreground: var(--text);
+  --color-fd-accent: var(--surface-2);
+  --color-fd-accent-foreground: var(--text);
+  --color-fd-ring: var(--accent);
+
+  color-scheme: light;
+}
+
+.dark {
+  --bg: oklch(0.165 0.014 282);
+  --surface: oklch(0.205 0.016 282);
+  --surface-2: oklch(0.245 0.018 282);
+  --text: oklch(0.96 0.006 282);
+  --muted: oklch(0.72 0.014 282);
+  --faint: oklch(0.56 0.014 282);
+  --line: oklch(1 0 0 / 0.08);
+  --line-strong: oklch(1 0 0 / 0.15);
+  --accent: oklch(0.74 0.16 286);
+  --accent-2: oklch(0.78 0.13 232);
+  --accent-strong: oklch(0.8 0.15 286);
+  --accent-contrast: oklch(0.18 0.03 286);
+  --accent-tint: oklch(0.74 0.16 286 / 0.16);
+  --type-procedural: oklch(0.76 0.14 165);
+  --type-semantic: oklch(0.72 0.14 252);
+  --type-episodic: oklch(0.74 0.16 320);
+
+  --color-fd-background: var(--bg);
+  --color-fd-foreground: var(--text);
+  --color-fd-card: var(--surface);
+  --color-fd-card-foreground: var(--text);
+  --color-fd-popover: var(--surface);
+  --color-fd-popover-foreground: var(--text);
+  --color-fd-muted: var(--surface-2);
+  --color-fd-muted-foreground: var(--muted);
+  --color-fd-border: var(--line-strong);
+  --color-fd-primary: var(--accent);
+  --color-fd-primary-foreground: var(--accent-contrast);
+  --color-fd-secondary: var(--surface-2);
+  --color-fd-secondary-foreground: var(--text);
+  --color-fd-accent: var(--surface-2);
+  --color-fd-accent-foreground: var(--text);
+  --color-fd-ring: var(--accent);
+
+  color-scheme: dark;
+}
+
+@layer base {
+  body {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: 'cv01', 'ss01';
+  }
+  ::selection {
+    background: var(--accent-tint);
+  }
+}
+
+@layer utilities {
+  /* A hairline that reads as a machined edge: top inner highlight + outer line. */
+  .bezel {
+    border: 1px solid var(--line);
+    box-shadow: inset 0 1px 0 0 oklch(1 0 0 / 0.04);
+  }
+  .dark .bezel {
+    box-shadow: inset 0 1px 0 0 oklch(1 0 0 / 0.06);
+  }
+  /* Faint film grain, fixed and non-interactive (performance-safe). */
+  .grain::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    opacity: 0.02;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* The accent gradient used by primary buttons and graph edges. */
+  .bg-accent-gradient {
+    background-image: linear-gradient(135deg, var(--accent), var(--accent-2));
+  }
+
+  /* ---- Reactive elements (ported from the dashboard) ---- */
+  /* Hover lift for cards. */
+  .lift {
+    transition:
+      transform 0.22s var(--ease-out-soft),
+      box-shadow 0.22s ease,
+      border-color 0.2s ease;
+  }
+  .lift:hover {
+    transform: translateY(-3px);
+  }
+  /* Press feedback. */
+  .tap {
+    transition: transform 0.12s ease;
+  }
+  .tap:active {
+    transform: scale(0.975);
+  }
+  /* Shine sweep on hover. */
+  .sheen {
+    position: relative;
+    overflow: hidden;
+  }
+  .sheen::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(120deg, transparent 30%, oklch(1 0 0 / 0.14) 50%, transparent 70%);
+    transform: translateX(-120%);
+    transition: transform 0.6s ease;
+  }
+  .sheen:hover::after {
+    transform: translateX(120%);
+  }
+  /* Progressive disclosure: collapsed 0fr to 1fr on hover/focus (smooth auto-height). */
+  .reveal {
+    display: grid;
+    grid-template-rows: 0fr;
+    opacity: 0;
+    transition:
+      grid-template-rows 0.3s var(--ease-out-soft),
+      opacity 0.24s ease;
+  }
+  .reveal > * {
+    overflow: hidden;
+    min-height: 0;
+  }
+  .has-reveal:hover .reveal,
+  .has-reveal:focus-visible .reveal,
+  .has-reveal:focus-within .reveal {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+  /* Slide-in affordance arrow that appears with a reveal. */
+  .go {
+    opacity: 0;
+    transform: translateX(-5px);
+    transition:
+      opacity 0.22s ease,
+      transform 0.26s var(--ease-out-soft);
+  }
+  .has-reveal:hover .go,
+  .has-reveal:focus-within .go {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  /* Accent edge that grows on row hover. */
+  .row-acc {
+    position: relative;
+  }
+  .row-acc::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 8px;
+    bottom: 8px;
+    width: 0;
+    border-radius: 2px;
+    background: linear-gradient(var(--accent), var(--accent-2));
+    transition: width 0.2s var(--ease-out-soft);
+  }
+  .row-acc:hover::before {
+    width: 3px;
+  }
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translate(0, 10px);
+    }
+    to {
+      opacity: 1;
+      transform: translate(0, 0);
+    }
+  }
+  @keyframes float-orb {
+    0%,
+    100% {
+      transform: translate(0, 0);
+    }
+    50% {
+      transform: translate(0, -14px);
+    }
+  }
+  .animate-rise {
+    animation: rise 0.5s var(--ease-out-soft) both;
+  }
+  .animate-float-orb {
+    animation: float-orb 9s ease-in-out infinite;
+  }
+}
+
+/* Mermaid diagram container: a bordered, subtle-grid frame on surface-2. */
+.mermaid-frame {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 1.25rem;
+  background:
+    radial-gradient(circle at 1px 1px, var(--line) 1px, transparent 0) 0 0 / 16px 16px,
+    var(--surface-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

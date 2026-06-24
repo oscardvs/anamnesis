@@ -1,0 +1,4 @@
+{
+  "title": "Internals",
+  "pages": ["architecture", "data-model", "recall", "capture-and-injection", "sync", "reflection", "mcp-server", "dashboard-internals", "design-decisions"]
+}

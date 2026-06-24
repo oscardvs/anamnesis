@@ -1,0 +1,9 @@
+export const appName = 'Anamnesis';
+export const tagline = 'Cross-machine memory for Claude Code.';
+export const docsRoute = '/docs';
+export const docsImageRoute = '/og/docs';
+export const docsContentRoute = '/llms.mdx/docs';
+export const gitConfig = { user: 'oscardvs', repo: 'anamnesis', branch: 'main' };
+export const repoUrl = `https://github.com/${gitConfig.user}/${gitConfig.repo}`;
+export const pipPackage = 'anamnesis-memory';
+export const installCommand = 'uv tool install anamnesis-memory && anamnesis init';
