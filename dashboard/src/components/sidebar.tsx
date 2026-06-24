@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  ArrowUpRight,
+  BookText,
   GitCommitVertical,
   LayoutDashboard,
   Library,
@@ -26,6 +28,9 @@ const NAV = [
   { label: "History", href: "/history", icon: GitCommitVertical },
   { label: "Machines", href: "/machines", icon: Server },
 ];
+
+/** Public documentation site (Fumadocs, deployed to GitHub Pages). */
+const DOCS_URL = "https://oscardvs.github.io/anamnesis/docs";
 
 function useOverviewMeta() {
   const [projects, setProjects] = useState<[string, number][]>([]);
@@ -97,6 +102,21 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             </Link>
           );
         })}
+        <a
+          href={DOCS_URL}
+          target="_blank"
+          rel="noreferrer"
+          onClick={onNavigate}
+          className="group flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-muted transition-colors duration-150 hover:bg-highlight hover:text-text"
+        >
+          <BookText size={16} strokeWidth={1.6} className="text-faint" />
+          Docs
+          <ArrowUpRight
+            size={13}
+            strokeWidth={1.8}
+            className="ml-auto text-faint opacity-0 transition-opacity group-hover:opacity-100"
+          />
+        </a>
       </nav>
 
       <div className="mt-6 flex min-h-0 flex-1 flex-col px-3">
