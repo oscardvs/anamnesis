@@ -10,9 +10,9 @@ export default async function HistoryPage() {
   return (
     <div className="animate-rise space-y-6">
       <PageHeader
-        eyebrow="git"
+        eyebrow="timeline"
         title="History"
-        description="Every sync commit in the memory repo. Select a commit to see the notes it changed."
+        description="Every sync commit across the fleet, newest first. Select a commit to see the notes it changed."
       />
       <HistoryExplorer commits={commits} />
     </div>
