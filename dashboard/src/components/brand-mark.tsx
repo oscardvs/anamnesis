@@ -1,24 +1,20 @@
-/** Anamnesis mark: three stacked isometric plates - memory layers that sync. */
+import { cn } from "@/lib/cn";
+import { MARK_CORE, MARK_PATH } from "@/lib/mark-path";
+
+/**
+ * Anamnesis "return" mark: a tapered spiral winding inward to an origin node
+ * (recollection). Inherits the current text colour; defaults to the accent.
+ */
 export function BrandMark({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" className={className} fill="none" aria-hidden>
-      <path d="M12 2 L21 7 L12 12 L3 7 Z" fill="var(--accent)" fillOpacity="0.92" />
-      <path
-        d="M3 12 L12 17 L21 12"
-        stroke="var(--accent)"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        opacity="0.72"
-      />
-      <path
-        d="M3 17 L12 22 L21 17"
-        stroke="var(--accent)"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        opacity="0.42"
-      />
+    <svg
+      viewBox="0 0 100 100"
+      className={cn("text-accent", className)}
+      fill="currentColor"
+      aria-hidden
+    >
+      <path d={MARK_PATH} />
+      <circle cx="50" cy="50" r={MARK_CORE} />
     </svg>
   );
 }
