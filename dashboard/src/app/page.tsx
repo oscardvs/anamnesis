@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowUpRight, GitCommitVertical, Layers, Network, TriangleAlert } from "lucide-react";
 
+import { AutoRefresh } from "@/components/auto-refresh";
 import { CommitGraph } from "@/components/commit-graph";
 import { CountUp } from "@/components/count-up";
 import { HeroCanvas } from "@/components/hero-canvas";
@@ -42,6 +43,7 @@ export default async function OverviewPage() {
 
   return (
     <div className="animate-rise space-y-4 md:space-y-5">
+      <AutoRefresh />
       {!hasIndex && (
         <Panel className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">

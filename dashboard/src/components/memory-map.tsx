@@ -66,14 +66,33 @@ export function MemoryMap() {
     [router],
   );
 
+  const lastSigRef = useRef<string | null>(null);
   useEffect(() => {
     let alive = true;
-    fetch("/api/graph", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((g: Graph) => alive && setGraph(g))
-      .catch(() => alive && setFailed(true));
+    const load = async () => {
+      try {
+        const res = await fetch("/api/graph", { cache: "no-store" });
+        const text = await res.text();
+        // Only rebuild the 3D scene when the graph actually changed, so an idle
+        // map is never disrupted and a new note appears within the poll window.
+        if (!alive || text === lastSigRef.current) return;
+        lastSigRef.current = text;
+        setGraph(JSON.parse(text) as Graph);
+        setFailed(false);
+      } catch {
+        if (alive) setFailed(true);
+      }
+    };
+    load();
+    const id = setInterval(load, 20_000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       alive = false;
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
 

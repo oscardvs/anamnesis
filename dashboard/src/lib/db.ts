@@ -19,20 +19,62 @@ const TAG_SEP = "\x1f";
 
 type DbHandle = import("better-sqlite3").Database;
 
-// Cache the connection across HMR reloads in dev.
-const globalForDb = globalThis as unknown as { __anamnesisDb?: DbHandle | null };
+// Cache the connection across HMR reloads in dev, alongside the index file's
+// signature. A long-lived always-on dashboard (the tailnet hub) reads an index
+// that other processes write to (the MCP server's memory_write, the capture
+// hook, sync pulling notes from other machines). Tracking the file signature
+// lets us reopen when it changes, so external writes show up without a restart.
+const globalForDb = globalThis as unknown as {
+  __anamnesisDb?: DbHandle | null;
+  __anamnesisDbSig?: string;
+};
 
-/** Open (or reuse) the read-only index connection, or null if it doesn't exist yet. */
+/** mtime+size of the index file and its -wal sidecar; changes on any write. */
+function indexSignature(path: string): string {
+  const parts: string[] = [];
+  for (const p of [path, `${path}-wal`]) {
+    try {
+      const st = fs.statSync(p);
+      parts.push(`${st.mtimeMs}:${st.size}`);
+    } catch {
+      parts.push("-"); // the -wal sidecar may not exist between checkpoints
+    }
+  }
+  return parts.join("|");
+}
+
+/** Open (or reuse) the read-only index connection, reopening if the file changed. */
 function getDb(): DbHandle | null {
-  if (globalForDb.__anamnesisDb !== undefined) return globalForDb.__anamnesisDb;
   const path = dbPath();
   if (!fs.existsSync(path)) {
+    if (globalForDb.__anamnesisDb) {
+      try {
+        globalForDb.__anamnesisDb.close();
+      } catch {
+        /* ignore */
+      }
+    }
     globalForDb.__anamnesisDb = null;
+    globalForDb.__anamnesisDbSig = undefined;
     return null;
+  }
+  const sig = indexSignature(path);
+  if (globalForDb.__anamnesisDb && globalForDb.__anamnesisDbSig === sig) {
+    return globalForDb.__anamnesisDb;
+  }
+  // First open, or the index changed under us: (re)open against current state.
+  // Queries run synchronously, so we can close the stale handle safely here.
+  if (globalForDb.__anamnesisDb) {
+    try {
+      globalForDb.__anamnesisDb.close();
+    } catch {
+      /* ignore */
+    }
   }
   const db = new Database(path, { readonly: true, fileMustExist: true });
   db.pragma("busy_timeout = 5000");
   globalForDb.__anamnesisDb = db;
+  globalForDb.__anamnesisDbSig = sig;
   return db;
 }
 
@@ -46,6 +88,7 @@ export function closeDb(): void {
     }
   }
   globalForDb.__anamnesisDb = undefined;
+  globalForDb.__anamnesisDbSig = undefined;
 }
 
 /** True if the index file exists and is readable. */
