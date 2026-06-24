@@ -28,6 +28,7 @@ from anamnesis.eval import (
     run_reflection_experiment,
 )
 from anamnesis.inject import render_inject, resolve_project_key, select_inject
+from anamnesis.merge import apply_merge, make_merger, resolve_min_durable, select_mergeable
 from anamnesis.migrate import apply_migration, plan_migration
 from anamnesis.native_import import ImportResult, import_native
 from anamnesis.onboard import InitOptions, run_init
@@ -88,6 +89,13 @@ def build_parser() -> argparse.ArgumentParser:
     pref.add_argument("--project", default=None)
     pref.add_argument("--apply", action="store_true")
     pref.add_argument("--no-sync", action="store_true")
+    pmrg = sub.add_parser(
+        "merge",
+        help="consolidate redundant durable notes by setting supersedes (dry-run unless --apply)",
+    )
+    pmrg.add_argument("--project", default=None)
+    pmrg.add_argument("--apply", action="store_true")
+    pmrg.add_argument("--no-sync", action="store_true")
     pev = sub.add_parser(
         "eval", help="measure recall + working-set shrink (build | run | experiment)"
     )
@@ -369,6 +377,76 @@ def cmd_reflect(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_merge(args: argparse.Namespace) -> int:
+    """Consolidate a project's redundant durable notes. Dry-run unless --apply.
+
+    Both dry-run and --apply need a provider: the dry-run prints the LLM's proposed
+    groups (the human checkpoint). With no provider configured, nothing is written.
+    """
+    store = MemoryStore(resolve_home())
+    try:
+        merger = make_merger()
+        if merger is None:
+            print(
+                "merge: no reflection provider configured "
+                "(set ANAMNESIS_REFLECTION_PROVIDER + model/base-url/key)"
+            )
+            return 0
+        min_durable = resolve_min_durable()
+        if args.project:
+            projects = [args.project]
+        else:
+            projects = sorted({m.project for m in store.list(scope="portable")})
+        superseded = 0
+        for project in projects:
+            notes = select_mergeable(store, project)
+            if len(notes) < min_durable:
+                continue
+            if not args.apply:
+                try:
+                    groups = merger.propose(notes)
+                except Exception as exc:  # noqa: BLE001 - one project must not kill the run
+                    print(f"merge: {project}: failed ({exc}); skipped")
+                    continue
+                for g in groups:
+                    if g.action == "keep":
+                        print(
+                            f"merge: {project}: keep {g.keeper_id} supersedes "
+                            f"{len(g.superseded_ids)} note(s) (dry-run; pass --apply)"
+                        )
+                    else:
+                        print(
+                            f"merge: {project}: synthesize {g.title!r} from "
+                            f"{len(g.superseded_ids)} note(s) (dry-run; pass --apply)"
+                        )
+                if not groups:
+                    print(f"merge: {project}: no redundant groups found (dry-run)")
+                continue
+            try:
+                result = apply_merge(store, project, merger, machine_id=resolve_machine_id())
+            except Exception as exc:  # noqa: BLE001 - one project must not kill the run
+                print(f"merge: {project}: failed ({exc}); skipped")
+                continue
+            superseded += result.notes_superseded
+            print(
+                f"merge: {project}: {result.groups_applied} group(s), "
+                f"{result.notes_synthesized} synthesized, {result.notes_superseded} superseded"
+            )
+        if args.apply and superseded:
+            if args.no_sync:
+                store.reindex()
+                print(f"merge: superseded {superseded} note(s); reindexed (no sync)")
+            else:
+                synced = _run_sync(store, _backend(store))
+                print(
+                    f"merge: superseded {superseded} note(s); "
+                    f"synced (pushed={synced.pushed} pulled={synced.pulled})"
+                )
+    finally:
+        store.close()
+    return 0
+
+
 def _eval_set_path(args: argparse.Namespace) -> Path:
     if args.eval_set:
         return Path(args.eval_set).expanduser()
@@ -576,6 +654,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_backfill_provenance(args)
     if command == "reflect":
         return cmd_reflect(args)
+    if command == "merge":
+        return cmd_merge(args)
     if command == "eval":
         return cmd_eval(args)
     if command == "import":

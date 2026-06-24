@@ -1,5 +1,6 @@
 import io
 import json
+import re as _re
 
 import pytest
 
@@ -534,3 +535,68 @@ def test_eval_no_subcommand_explains(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert rc == 2
     assert "build" in out and "run" in out and "experiment" in out
+
+
+def _seed_durable(store, project, n):
+    return [
+        store.write(type="semantic", title=f"d{i}", body=f"fact {i}", project=project)
+        for i in range(n)
+    ]
+
+
+def _keep_first_merge_client(system, user):
+    ids = _re.findall(r"## \[([^\]]+)\] \[", user)
+    if len(ids) < 2:
+        return "[]"
+    keeper, *rest = ids
+    return json.dumps([{"action": "keep", "keeper_id": keeper, "superseded_ids": rest}])
+
+
+def _fake_merger():
+    from anamnesis.merge import Merger
+
+    return Merger(client=_keep_first_merge_client, model_label="deepseek/test")
+
+
+def test_cmd_merge_apply_unconfigured_reports(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.delenv("ANAMNESIS_REFLECTION_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    MemoryStore(root=tmp_path / "store").close()
+    assert main(["merge", "--apply"]) == 0
+    assert "no reflection provider configured" in capsys.readouterr().out
+
+
+def test_cmd_merge_dry_run_prints_proposals_without_writing(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.setenv("ANAMNESIS_MERGE_MIN_DURABLE", "2")
+    store = MemoryStore(root=tmp_path / "store")
+    _seed_durable(store, "p", 3)
+    store.close()
+
+    monkeypatch.setattr("anamnesis.cli.make_merger", _fake_merger)
+    assert main(["merge"]) == 0
+    out = capsys.readouterr().out
+    assert "keep" in out and "dry-run" in out
+
+    store = MemoryStore(root=tmp_path / "store")
+    assert store.superseded_ids() == set()  # nothing written
+    store.close()
+
+
+def test_cmd_merge_apply_writes_and_supersedes(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.setenv("ANAMNESIS_MERGE_MIN_DURABLE", "2")
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    store = MemoryStore(root=tmp_path / "store")
+    _seed_durable(store, "p", 3)
+    store.close()
+
+    monkeypatch.setattr("anamnesis.cli.make_merger", _fake_merger)
+    assert main(["merge", "--apply", "--no-sync"]) == 0
+    assert "superseded" in capsys.readouterr().out
+
+    store = MemoryStore(root=tmp_path / "store")
+    assert len(store.superseded_ids()) == 2  # 3 notes -> keep 1, supersede 2
+    store.close()
