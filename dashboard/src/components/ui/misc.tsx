@@ -98,7 +98,9 @@ export function PageHeader({
             {eyebrow}
           </p>
         )}
-        <h1 className="text-balance text-2xl font-semibold tracking-tight text-text">{title}</h1>
+        <h1 className="text-balance font-display text-[1.75rem] font-semibold tracking-tight text-text">
+          {title}
+        </h1>
         {description && <p className="mt-1.5 max-w-2xl text-sm text-muted">{description}</p>}
       </div>
       {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
@@ -113,7 +115,7 @@ export function Panel({
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={cn("rounded-2xl bezel bg-surface", className)} {...props}>
+    <div className={cn("rounded-2xl bezel bg-surface shadow-[var(--shadow)]", className)} {...props}>
       {children}
     </div>
   );
