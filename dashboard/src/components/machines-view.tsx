@@ -54,6 +54,7 @@ export function MachinesView({ initial }: { initial: FleetData }) {
 
   const { machines, repo } = data;
   const status = describeRepo(repo);
+  const totalNotes = machines.reduce((sum, m) => sum + m.noteCount, 0);
 
   return (
     <div className="space-y-5">
@@ -94,7 +95,10 @@ export function MachinesView({ initial }: { initial: FleetData }) {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {machines.map((m) => (
-          <Panel key={m.machineId} className="p-4">
+          <Panel
+            key={m.machineId}
+            className="lift has-reveal cursor-default p-4 transition-[transform,box-shadow,border-color] hover:border-line-strong"
+          >
             <div className="flex items-center justify-between">
               <div className="flex min-w-0 items-center gap-2">
                 <span
@@ -127,6 +131,24 @@ export function MachinesView({ initial }: { initial: FleetData }) {
                   {m.lastSync ? relativeTime(m.lastSync) : "never synced"}
                 </p>
                 {m.lastCommit && <p className="font-mono text-[11px] text-faint">{m.lastCommit}</p>}
+              </div>
+            </div>
+            <div className="reveal">
+              <div>
+                <div className="mt-3 border-t border-dashed border-line pt-3">
+                  <div className="mb-1.5 flex justify-between text-[10.5px] text-faint">
+                    <span>share of store</span>
+                    <span className="font-mono text-muted">
+                      {totalNotes ? Math.round((m.noteCount / totalNotes) * 100) : 0}%
+                    </span>
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
+                    <div
+                      className="bg-accent-gradient h-full rounded-full"
+                      style={{ width: `${totalNotes ? (m.noteCount / totalNotes) * 100 : 0}%` }}
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           </Panel>
