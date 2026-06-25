@@ -70,6 +70,13 @@ Cross-platform: Linux is built and verified locally. macOS (dmg) and Windows (ns
 `desktop build` GitHub Actions workflow (`.github/workflows/desktop.yml`) and are shipped unsigned and
 unverified until that hardware is available.
 
+## Settings
+
+The `/settings` page reads and writes `~/.anamnesis/config.json` (machine-local, never synced, mode
+0600) via the `anamnesis config` CLI (`list`, `get`, `set`, `unset`, `test`). The reflection API key
+is stored there and never shown in full - the page displays a masked preview with Replace and Clear
+actions. Environment variables (e.g. `ANAMNESIS_REFLECTION_PROVIDER`) override the file when set.
+
 ## Testing
 
 ```bash
