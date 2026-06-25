@@ -206,3 +206,25 @@ def make_llm_summarizer() -> Summarizer:
         model_label=f"{cfg.provider}/{cfg.model}",
         max_chars=cfg.max_tokens * 4,
     )
+
+
+def ping_reflection(
+    settings: config.ReflectionSettings,
+    *,
+    client_factory: Callable[[str, str, str, float], LLMClient] = _http_client,
+) -> tuple[bool, str]:
+    """Verify the configured provider with one minimal request. Returns (ok, message)."""
+    if settings.provider == "heuristic":
+        return True, "provider=heuristic (no LLM configured; nothing to test)"
+    if not (settings.model and settings.base_url and settings.api_key):
+        return False, "incomplete config (need provider, model, base_url, api_key)"
+    client = client_factory(
+        settings.base_url, settings.api_key, settings.model, min(settings.timeout, 15.0)
+    )
+    try:
+        reply = client("Reply with the single word: ok", "ping")
+    except Exception as exc:  # noqa: BLE001 - report any failure as a failed test
+        return False, f"request failed: {exc}"
+    if reply.strip():
+        return True, f"ok (provider={settings.provider} model={settings.model})"
+    return False, "empty reply from provider"

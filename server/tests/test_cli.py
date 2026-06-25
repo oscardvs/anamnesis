@@ -701,3 +701,10 @@ def test_config_unset_removes_key(tmp_path, monkeypatch, capsys):
     assert main(["config", "unset", "reflection.api_key"]) == 0
     data = json.loads((tmp_path / "config.json").read_text())
     assert "reflection" not in data or "api_key" not in data.get("reflection", {})
+
+
+def test_config_test_heuristic_ok(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("ANAMNESIS_REFLECTION_PROVIDER", raising=False)
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path))
+    assert main(["config", "test"]) == 0
+    assert "heuristic" in capsys.readouterr().out

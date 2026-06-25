@@ -3,6 +3,7 @@ import json
 import pytest
 
 from anamnesis.capture import HeuristicSummarizer, ParsedSession, resolve_summarizer
+from anamnesis.config import ReflectionSettings
 from anamnesis.llm_summarizer import (
     LLMSummarizer,
     _parse_summary,
@@ -204,3 +205,56 @@ def test_resolve_reflection_config_reads_config_json(tmp_path, monkeypatch):
     cfg = resolve_reflection_config()
     assert cfg.provider == "deepseek"
     assert cfg.api_key == "sk-cfg"
+
+
+def _settings(**kw):
+    base = dict(
+        provider="deepseek",
+        model="m",
+        base_url="https://x",
+        api_key="sk",
+        timeout=30.0,
+        max_tokens=120000,
+    )
+    base.update(kw)
+    return ReflectionSettings(**base)
+
+
+def test_ping_reflection_heuristic_short_circuits():
+    from anamnesis.llm_summarizer import ping_reflection
+
+    ok, msg = ping_reflection(_settings(provider="heuristic"))
+    assert ok is True
+    assert "heuristic" in msg
+
+
+def test_ping_reflection_ok_with_fake_client():
+    from anamnesis.llm_summarizer import ping_reflection
+
+    def factory(base_url, api_key, model, timeout):
+        return lambda system, user: "ok"
+
+    ok, msg = ping_reflection(_settings(), client_factory=factory)
+    assert ok is True
+
+
+def test_ping_reflection_reports_failure():
+    from anamnesis.llm_summarizer import ping_reflection
+
+    def factory(base_url, api_key, model, timeout):
+        def call(system, user):
+            raise RuntimeError("401 unauthorized")
+
+        return call
+
+    ok, msg = ping_reflection(_settings(), client_factory=factory)
+    assert ok is False
+    assert "401" in msg
+
+
+def test_ping_reflection_incomplete_config():
+    from anamnesis.llm_summarizer import ping_reflection
+
+    ok, msg = ping_reflection(_settings(api_key=""))
+    assert ok is False
+    assert "incomplete" in msg

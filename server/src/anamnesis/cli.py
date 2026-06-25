@@ -32,6 +32,7 @@ from anamnesis.eval import (
     run_reflection_experiment,
 )
 from anamnesis.inject import render_inject, resolve_project_key, select_inject
+from anamnesis.llm_summarizer import ping_reflection
 from anamnesis.merge import apply_merge, make_merger, resolve_min_durable, select_mergeable
 from anamnesis.migrate import apply_migration, plan_migration
 from anamnesis.native_import import ImportResult, import_native
@@ -687,8 +688,10 @@ def _render_config(view: dict[str, Any]) -> str:
 
 
 def _config_test() -> int:
-    print("config test: not yet implemented", file=sys.stderr)
-    return 1
+    """Verify the configured reflection provider with a minimal request."""
+    ok, message = ping_reflection(config.resolve_reflection_settings())
+    print(f"config test: {message}")
+    return 0 if ok else 1
 
 
 def cmd_serve() -> int:
