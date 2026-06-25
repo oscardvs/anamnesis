@@ -252,19 +252,23 @@ def recall_at_k(
 ) -> RecallReport:
     """Recall@k and MRR using ``store.search``.
 
-    A case is a hit at k when any of its ``relevant_ids`` appears in the top-k
-    search results; MRR uses the rank of the first relevant hit.
+    A case is a hit at k when any of its ``relevant_ids``, or a note that
+    supersedes one, appears in the top-k search results; MRR uses the rank of the
+    first relevant hit.
     """
     if not cases:
         return RecallReport(n_cases=0, recall_at={k: 0.0 for k in ks}, mrr=0.0)
     ranks = case_ranks(store, cases, max(ks))
+    superseders = store.superseders()
     hits = {k: 0 for k in ks}
     rr_total = 0.0
     for cr in ranks:
-        if cr.rank is not None:
-            rr_total += 1.0 / cr.rank
+        relevant = expand_relevant(cr.relevant_ids, superseders)
+        rank = _first_hit_rank(cr.result_ids, relevant)
+        if rank is not None:
+            rr_total += 1.0 / rank
             for k in ks:
-                if cr.rank <= k:
+                if rank <= k:
                     hits[k] += 1
     n = len(ranks)
     return RecallReport(n_cases=n, recall_at={k: hits[k] / n for k in ks}, mrr=rr_total / n)
@@ -641,10 +645,7 @@ def run_merge_experiment(
         after = run_baseline(sandbox, cases, ks)
         after_ranks = case_ranks(sandbox, cases, DIAG_LIMIT)
         superseded = sandbox.superseded_ids() - before_superseded
-        superseders: dict[str, str] = {}
-        for note in sandbox.list():
-            for sid in note.supersedes:
-                superseders[sid] = note.id
+        superseders = sandbox.superseders()
     return MergeExperimentReport(
         before=before,
         after=after,

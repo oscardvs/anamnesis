@@ -160,6 +160,39 @@ def test_recall_at_k_empty_cases(tmp_path: Path):
     store.close()
 
 
+def test_recall_at_k_credits_retrieved_superseder(tmp_path: Path):
+    store = MemoryStore(tmp_path / "s")
+    old = store.write(type="semantic", title="WAL lock conflicts", body="use WAL", project="p")
+    # 'new' supersedes 'old' and is rich in the query terms, so it is retrieved;
+    # 'old' is hidden from search but remains the eval target.
+    store.write(
+        type="semantic",
+        title="WAL lock conflicts and WAL mode",
+        body="use WAL mode always",
+        project="p",
+        supersedes=[old.id],
+    )
+    rep = recall_at_k(
+        store, [EvalCase(query="WAL lock conflicts WAL mode", relevant_ids=[old.id])], ks=(1, 3)
+    )
+    assert rep.recall_at[3] == 1.0  # credited via the superseder even though old is hidden
+    store.close()
+
+
+def test_recall_at_k_misses_when_superseder_not_retrieved(tmp_path: Path):
+    store = MemoryStore(tmp_path / "s")
+    old = store.write(type="semantic", title="quantum teleportation notes", body="q", project="p")
+    # superseder is about something else, so it will not be retrieved for the query
+    store.write(
+        type="semantic", title="grocery list", body="milk eggs", project="p", supersedes=[old.id]
+    )
+    rep = recall_at_k(
+        store, [EvalCase(query="quantum teleportation", relevant_ids=[old.id])], ks=(1, 3)
+    )
+    assert rep.recall_at[3] == 0.0  # old is hidden and its superseder is irrelevant
+    store.close()
+
+
 def test_case_ranks_reports_first_relevant_rank(tmp_path: Path):
     store = MemoryStore(tmp_path / "s")
     a = store.write(type="semantic", title="alpha beta", body="x", project="p")
