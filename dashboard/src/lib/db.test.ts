@@ -17,20 +17,20 @@ CREATE TABLE memories (
   id TEXT PRIMARY KEY, type TEXT, title TEXT, body_path TEXT, project TEXT,
   machine_id TEXT, scope TEXT, created_at TEXT, updated_at TEXT,
   prov_source TEXT NOT NULL DEFAULT 'human', prov_model TEXT, prov_session TEXT,
-  confidence REAL NOT NULL DEFAULT 1.0, supersedes TEXT
+  confidence REAL NOT NULL DEFAULT 1.0
 );
 CREATE TABLE memory_tags (memory_id TEXT, tag TEXT, PRIMARY KEY (memory_id, tag));
 `;
 
 function insert(db: Database.Database, m: Record<string, unknown>, tags: string[]) {
   db.prepare(
-    "INSERT INTO memories (id,type,title,body_path,project,machine_id,scope,created_at,updated_at,prov_source,prov_model,prov_session,confidence,supersedes)" +
-      " VALUES (@id,@type,@title,@body_path,@project,@machine_id,@scope,@created_at,@updated_at,@prov_source,@prov_model,@prov_session,@confidence,@supersedes)",
+    "INSERT INTO memories (id,type,title,body_path,project,machine_id,scope,created_at,updated_at,prov_source,prov_model,prov_session,confidence)" +
+      " VALUES (@id,@type,@title,@body_path,@project,@machine_id,@scope,@created_at,@updated_at,@prov_source,@prov_model,@prov_session,@confidence)",
   ).run({
     type: "semantic", title: "t", body_path: `semantic/${m.id}.md`, project: "demo",
     machine_id: "m", scope: "portable", created_at: "2026-01-01T00:00:00+00:00",
     updated_at: "2026-01-01T00:00:00+00:00", prov_model: "", prov_session: "",
-    confidence: 1.0, supersedes: "", ...m,
+    confidence: 1.0, ...m,
   });
   for (const tag of tags) db.prepare("INSERT INTO memory_tags VALUES (?,?)").run(m.id, tag);
 }

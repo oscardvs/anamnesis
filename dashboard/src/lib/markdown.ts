@@ -21,6 +21,15 @@ function asString(value: unknown): string {
   return String(value);
 }
 
+/** Coerce a front-matter id field to a list, mirroring Python's `_as_id_list`.
+ * Tolerates legacy scalar notes: a bare string becomes a one-element list. */
+function asIdList(value: unknown): string[] {
+  if (value == null) return [];
+  if (Array.isArray(value)) return value.map(asString);
+  if (typeof value === "string") return value ? [value] : [];
+  return [asString(value)];
+}
+
 /** Parse a note file (front-matter + body) into a Memory. */
 export function parseMemory(text: string): Memory {
   if (!text.startsWith(FM_DELIM)) {
@@ -52,7 +61,7 @@ export function parseMemory(text: string): Memory {
     provModel: asString(meta.prov_model),
     provSession: asString(meta.prov_session),
     confidence: meta.confidence != null ? Number(meta.confidence) : 1.0,
-    supersedes: asString(meta.supersedes),
+    supersedes: asIdList(meta.supersedes),
   };
 }
 
@@ -77,7 +86,7 @@ export function serializeMemory(mem: Memory): string {
   };
   if (mem.provModel) front.prov_model = mem.provModel;
   if (mem.provSession) front.prov_session = mem.provSession;
-  if (mem.supersedes) front.supersedes = mem.supersedes;
+  if (mem.supersedes.length > 0) front.supersedes = mem.supersedes;
   front.created_at = mem.createdAt;
   front.updated_at = mem.updatedAt;
   front.tags = mem.tags;

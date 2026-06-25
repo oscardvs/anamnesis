@@ -144,7 +144,7 @@ describe("writeNote provenance", () => {
         provModel: "deepseek/v4-flash",
         provSession: "",
         confidence: 0.6,
-        supersedes: "",
+        supersedes: [],
       }),
       "utf-8",
     );
@@ -212,7 +212,7 @@ describe("markReviewed", () => {
         machineId: "testmachine", scope: "portable", tags: ["reflection"],
         createdAt: "2026-06-01T00:00:00+00:00", updatedAt: "2026-06-01T00:00:00+00:00",
         provSource: "reflection", provModel: "deepseek/v4-flash", provSession: "",
-        confidence: 0.6, supersedes: "",
+        confidence: 0.6, supersedes: [],
       }),
       "utf-8",
     );

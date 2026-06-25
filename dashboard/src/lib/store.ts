@@ -115,7 +115,7 @@ export async function writeNote(input: WriteInput): Promise<WriteResult> {
     provModel: existing?.provModel ?? "",
     provSession: existing?.provSession ?? "",
     confidence: existing?.confidence ?? 1.0,
-    supersedes: existing?.supersedes ?? "",
+    supersedes: existing?.supersedes ?? [],
   };
 
   const rel = notePath(memory.type, memory.id);

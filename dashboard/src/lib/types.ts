@@ -33,8 +33,8 @@ export interface Memory {
   provSession: string;
   /** Trust weight: 1.0 for human, 0.6 for reflection. */
   confidence: number;
-  /** Id of a prior note this revises, if any; "" otherwise. */
-  supersedes: string;
+  /** Ids of prior notes this consolidates/revises; [] if none. */
+  supersedes: string[];
 }
 
 /** A note's metadata as indexed in SQLite (no body; cheap to list/search). */

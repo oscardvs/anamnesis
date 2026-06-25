@@ -38,7 +38,7 @@ export async function seedStore(): Promise<SeededStore> {
       provModel: "",
       provSession: "",
       confidence: 1.0,
-      supersedes: "",
+      supersedes: [],
     },
     {
       id: "01J0SEEDA00000000000000000",
@@ -55,7 +55,7 @@ export async function seedStore(): Promise<SeededStore> {
       provModel: "deepseek/v4-flash",
       provSession: "",
       confidence: 0.6,
-      supersedes: "",
+      supersedes: [],
     },
     {
       id: "01J0SEEDB00000000000000000",
@@ -72,7 +72,7 @@ export async function seedStore(): Promise<SeededStore> {
       provModel: "",
       provSession: "",
       confidence: 1.0,
-      supersedes: "",
+      supersedes: [],
     },
   ];
 

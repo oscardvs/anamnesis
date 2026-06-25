@@ -18,7 +18,7 @@ const sample: Memory = {
   provModel: "",
   provSession: "",
   confidence: 1.0,
-  supersedes: "",
+  supersedes: [],
 };
 
 describe("markdown front-matter codec", () => {
@@ -108,8 +108,38 @@ describe("markdown front-matter codec", () => {
       provModel: "deepseek/v4-flash",
       provSession: "sess-1",
       confidence: 0.6,
-      supersedes: "01KV2V3G79X1VNYD9WC0Z83AAA",
+      supersedes: ["01KV2V3G79X1VNYD9WC0Z83AAA"],
     };
     expect(parseMemory(serializeMemory(reflection))).toEqual(reflection);
+  });
+
+  it("parses a multi-id supersedes block sequence into a string array", () => {
+    const text =
+      "---\nid: x\ntype: semantic\ntitle: t\n" +
+      "supersedes:\n- 01AAA\n- 01BBB\n" +
+      "created_at: '2026-01-01T00:00:00+00:00'\nupdated_at: '2026-01-01T00:00:00+00:00'\n" +
+      "tags: []\n---\nbody\n";
+    expect(parseMemory(text).supersedes).toEqual(["01AAA", "01BBB"]);
+  });
+
+  it("round-trips a multi-id supersedes list as a block sequence", () => {
+    const merged: Memory = { ...sample, supersedes: ["01AAA", "01BBB"] };
+    const text = serializeMemory(merged);
+    expect(text).toContain("supersedes:\n- 01AAA\n- 01BBB\n");
+    expect(parseMemory(text)).toEqual(merged);
+  });
+
+  it("tolerates a legacy bare scalar supersedes by coercing to a one-id array", () => {
+    const text =
+      "---\nid: x\ntype: semantic\ntitle: t\n" +
+      "supersedes: 01AAA\n" +
+      "created_at: '2026-01-01T00:00:00+00:00'\nupdated_at: '2026-01-01T00:00:00+00:00'\n" +
+      "tags: []\n---\nbody\n";
+    expect(parseMemory(text).supersedes).toEqual(["01AAA"]);
+  });
+
+  it("omits supersedes entirely when the list is empty", () => {
+    const text = serializeMemory({ ...sample, supersedes: [] });
+    expect(text).not.toContain("supersedes:");
   });
 });
