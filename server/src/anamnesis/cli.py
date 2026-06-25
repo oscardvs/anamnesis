@@ -481,30 +481,30 @@ def cmd_merge(args: argparse.Namespace) -> int:
                 )
                 continue
             # Gated apply.
+            assert cases is not None  # set when gating
             try:
                 groups = merger.propose(notes)
+                accepted, verdicts = select_safe_groups(
+                    store,
+                    project,
+                    groups,
+                    cases,
+                    machine_id=resolve_machine_id(),
+                    model_label=merger.model_label,
+                    k_gate=gate_k,
+                )
+                if accepted:
+                    result = apply_groups(
+                        store,
+                        project,
+                        accepted,
+                        machine_id=resolve_machine_id(),
+                        model_label=merger.model_label,
+                    )
+                    superseded += result.notes_superseded
             except Exception as exc:  # noqa: BLE001 - one project must not kill the run
                 print(f"merge: {project}: failed ({exc}); skipped")
                 continue
-            assert cases is not None  # set when gating
-            accepted, verdicts = select_safe_groups(
-                store,
-                project,
-                groups,
-                cases,
-                machine_id=resolve_machine_id(),
-                model_label=merger.model_label,
-                k_gate=gate_k,
-            )
-            if accepted:
-                result = apply_groups(
-                    store,
-                    project,
-                    accepted,
-                    machine_id=resolve_machine_id(),
-                    model_label=merger.model_label,
-                )
-                superseded += result.notes_superseded
             rejected = [v for v in verdicts if not v.accepted]
             print(f"merge: {project}: {len(accepted)} group(s) applied, {len(rejected)} rejected")
             for v in rejected:

@@ -654,6 +654,57 @@ def test_cmd_merge_apply_gated_applies_safe_groups(tmp_path, monkeypatch, capsys
     store.close()
 
 
+def test_cmd_merge_apply_gated_one_project_failure_does_not_abort_run(
+    tmp_path, monkeypatch, capsys
+):
+    import anamnesis.cli as cli_mod
+    from anamnesis.eval import EvalCase, save_eval_set
+
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.setenv("ANAMNESIS_MERGE_MIN_DURABLE", "2")
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    store = MemoryStore(root=tmp_path / "store")
+    # Project p (sorts first): mergeable notes whose gate evaluation is made to raise.
+    _seed_durable(store, "p", 2)
+    # Project q (sorts second): near-identical notes the gate keeps; recall holds.
+    qfirst = store.write(
+        type="semantic", title="alpha widget facts", body="alpha widget facts", project="q"
+    )
+    store.write(
+        type="semantic",
+        title="alpha widget facts duplicate",
+        body="alpha widget facts",
+        project="q",
+    )
+    store.close()
+    save_eval_set(
+        tmp_path / "store" / "eval" / "eval.jsonl",
+        [EvalCase(query="alpha widget facts", relevant_ids=[qfirst.id], approved=True)],
+    )
+    monkeypatch.setattr("anamnesis.cli.make_merger", _fake_merger)
+
+    real_select = cli_mod.select_safe_groups
+
+    def flaky_select(store, project, *args, **kwargs):
+        if project == "p":
+            raise RuntimeError("boom")
+        return real_select(store, project, *args, **kwargs)
+
+    monkeypatch.setattr("anamnesis.cli.select_safe_groups", flaky_select)
+
+    rc = main(["merge", "--apply", "--no-sync"])  # gated by default
+    out = capsys.readouterr().out
+    # The failing project is reported and skipped, the run does not abort.
+    assert rc == 0
+    assert "merge: p: failed (boom); skipped" in out
+    # The surviving project still applied, and the post-loop reindex tail still ran.
+    assert "merge: q:" in out and "applied" in out
+    assert "reindexed (no sync)" in out
+    store = MemoryStore(root=tmp_path / "store")
+    assert len(store.superseded_ids()) == 1  # only q's duplicate
+    store.close()
+
+
 def test_eval_experiment_merge_dispatches(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "home"))
     monkeypatch.setenv("ANAMNESIS_MERGE_MIN_DURABLE", "2")
