@@ -13,7 +13,9 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
+from anamnesis import config
 from anamnesis.capture import ParsedSession, parse_transcript, resolve_summarizer, write_episodic
 from anamnesis.config import resolve_claude_home, resolve_home, resolve_machine_id, resolve_remote
 from anamnesis.dedup import apply_dedup, plan_dedup
@@ -133,6 +135,17 @@ def build_parser() -> argparse.ArgumentParser:
     pin.add_argument("--no-sync", dest="no_sync", action="store_true")
     pin.add_argument("--yes", action="store_true")
     pin.add_argument("--print", dest="print_plan", action="store_true")
+    pcfg = sub.add_parser("config", help="view or edit machine-local settings (config.json)")
+    cfgsub = pcfg.add_subparsers(dest="config_command")
+    clist = cfgsub.add_parser("list", help="print all settings (api key masked)")
+    clist.add_argument("--json", dest="as_json", action="store_true")
+    cget = cfgsub.add_parser("get", help="print one setting's raw value")
+    cget.add_argument("key")
+    cset = cfgsub.add_parser("set", help="set settings: key value [key value ...]")
+    cset.add_argument("pairs", nargs="+")
+    cunset = cfgsub.add_parser("unset", help="remove a setting")
+    cunset.add_argument("key")
+    cfgsub.add_parser("test", help="verify the reflection provider with a minimal request")
     return p
 
 
@@ -612,6 +625,72 @@ def cmd_init(args: argparse.Namespace) -> int:
     return run_init(opts)
 
 
+def cmd_config(args: argparse.Namespace) -> int:
+    """View or edit machine-local settings in config.json (no sync, no index touch)."""
+    sub = args.config_command
+    home = resolve_home()
+    if sub == "list":
+        view = config.settings_view()
+        if args.as_json:
+            print(json.dumps(view))
+        else:
+            print(_render_config(view))
+        return 0
+    if sub == "get":
+        try:
+            print(config.get_setting(args.key))
+        except ValueError as exc:
+            print(f"config: {exc}", file=sys.stderr)
+            return 2
+        return 0
+    if sub == "set":
+        pairs = args.pairs
+        if len(pairs) % 2 != 0:
+            print("config set: expected key value pairs", file=sys.stderr)
+            return 2
+        updates: dict[str, object] = {}
+        for i in range(0, len(pairs), 2):
+            key, raw = pairs[i], pairs[i + 1]
+            try:
+                updates[key] = config.validate_setting(key, raw)
+            except ValueError as exc:
+                print(f"config set: {exc}", file=sys.stderr)
+                return 2
+        config.update_store_config(home, updates)
+        print(f"config: updated {', '.join(sorted(updates))}")
+        return 0
+    if sub == "unset":
+        if args.key not in config.KNOWN_KEYS:
+            print(f"config unset: unknown setting '{args.key}'", file=sys.stderr)
+            return 2
+        config.update_store_config(home, {args.key: config.UNSET})
+        print(f"config: unset {args.key}")
+        return 0
+    if sub == "test":
+        return _config_test()
+    print("usage: anamnesis config {list|get|set|unset|test}", file=sys.stderr)
+    return 2
+
+
+def _render_config(view: dict[str, Any]) -> str:
+    lines = []
+    for key in ("machine_id", "remote"):
+        field = view[key]
+        lines.append(f"{key} = {field['value']!r}  [{field['source']}]")
+    refl = view["reflection"]
+    for key in ("provider", "model", "base_url", "timeout", "max_tokens"):
+        field = refl[key]
+        lines.append(f"reflection.{key} = {field['value']!r}  [{field['source']}]")
+    preview = refl["api_key_preview"] or "(unset)"
+    lines.append(f"reflection.api_key = {preview}  [{refl['api_key_source']}]")
+    return "\n".join(lines)
+
+
+def _config_test() -> int:
+    print("config test: not yet implemented", file=sys.stderr)
+    return 1
+
+
 def cmd_serve() -> int:
     """Run the MCP server over stdio. FastMCP is imported lazily (serve-only)."""
     from anamnesis.server import build_server  # local import keeps the hot path MCP-free
@@ -693,6 +772,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_import(args)
     if command == "init":
         return cmd_init(args)
+    if command == "config":
+        return cmd_config(args)
     payload = read_hook_payload()
     if command == "inject":
         return cmd_inject(args, payload)

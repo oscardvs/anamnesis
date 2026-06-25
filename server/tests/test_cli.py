@@ -640,3 +640,64 @@ def test_eval_experiment_merge_no_provider(tmp_path, monkeypatch, capsys):
     rc = main(["eval", "experiment", "--merge"])
     assert rc == 0
     assert "no reflection provider" in capsys.readouterr().out.lower()
+
+
+def test_config_set_then_list_masks_key(tmp_path, monkeypatch, capsys):
+    for var in (
+        "ANAMNESIS_REFLECTION_PROVIDER",
+        "ANAMNESIS_REFLECTION_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "OPENAI_API_KEY",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path))
+    assert (
+        main(
+            [
+                "config",
+                "set",
+                "reflection.provider",
+                "deepseek",
+                "reflection.api_key",
+                "sk-abcdef",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert main(["config", "list", "--json"]) == 0
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+    assert payload["reflection"]["provider"]["value"] == "deepseek"
+    assert payload["reflection"]["api_key_set"] is True
+    assert "sk-abcdef" not in out
+
+
+def test_config_set_rejects_bad_provider(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path))
+    assert main(["config", "set", "reflection.provider", "gpt"]) == 2
+    assert not (tmp_path / "config.json").exists()
+
+
+def test_config_get_returns_raw_value(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("ANAMNESIS_REFLECTION_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path))
+    main(["config", "set", "reflection.api_key", "sk-raw"])
+    capsys.readouterr()
+    assert main(["config", "get", "reflection.api_key"]) == 0
+    assert capsys.readouterr().out.strip() == "sk-raw"
+
+
+def test_config_get_unknown_key_nonzero(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path))
+    assert main(["config", "get", "reflection.nonsense"]) != 0
+
+
+def test_config_unset_removes_key(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path))
+    main(["config", "set", "reflection.api_key", "sk-x"])
+    assert main(["config", "unset", "reflection.api_key"]) == 0
+    data = json.loads((tmp_path / "config.json").read_text())
+    assert "reflection" not in data or "api_key" not in data.get("reflection", {})
