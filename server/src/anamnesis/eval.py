@@ -142,6 +142,73 @@ class CaseRank:
 
 
 @dataclass
+class IdDetail:
+    """Per relevant-id detail within a regressed case."""
+
+    relevant_id: str
+    superseded: bool
+    superseder_id: str = ""  # the note that now supersedes relevant_id, "" if none
+    superseder_rank: int | None = None  # rank of that superseder in the after results
+
+
+@dataclass
+class CaseRegression:
+    """One eval case whose recall dropped after merge, with an artifact/real-loss verdict."""
+
+    query: str
+    before_rank: int | None
+    after_rank: int | None
+    verdict: str  # "artifact" | "real-loss"
+    details: list[IdDetail]
+
+
+def compute_regressions(
+    before_ranks: Sequence[CaseRank],
+    after_ranks: Sequence[CaseRank],
+    superseded: set[str],
+    superseders: dict[str, str],
+    ks: tuple[int, ...],
+) -> list[CaseRegression]:
+    """Classify each regressed eval case as an eval-id artifact or a real recall loss.
+
+    A case regressed when it had a relevant hit before and lost rank after. The
+    verdict is 'artifact' when at least one relevant id was superseded by a note
+    that is itself retrieved within ``max(ks)`` (the information moved intact, so
+    crediting the superseder would restore the hit); otherwise 'real-loss'.
+    """
+    max_k = max(ks)
+    after_by_query = {cr.query: cr for cr in after_ranks}
+    out: list[CaseRegression] = []
+    for before in before_ranks:
+        after = after_by_query.get(before.query)
+        if after is None or before.rank is None:
+            continue  # no after data, or already a miss before merge (cannot regress)
+        if not (after.rank is None or after.rank > before.rank):
+            continue  # held or improved
+        details: list[IdDetail] = []
+        is_artifact = False
+        for rid in before.relevant_ids:
+            sup = rid in superseded
+            superseder_id = superseders.get(rid, "") if sup else ""
+            superseder_rank: int | None = None
+            if superseder_id and superseder_id in after.result_ids:
+                superseder_rank = after.result_ids.index(superseder_id) + 1
+            if superseder_rank is not None and superseder_rank <= max_k:
+                is_artifact = True
+            details.append(IdDetail(rid, sup, superseder_id, superseder_rank))
+        out.append(
+            CaseRegression(
+                query=before.query,
+                before_rank=before.rank,
+                after_rank=after.rank,
+                verdict="artifact" if is_artifact else "real-loss",
+                details=details,
+            )
+        )
+    return out
+
+
+@dataclass
 class RecallReport:
     """Recall@k and MRR over an eval set."""
 

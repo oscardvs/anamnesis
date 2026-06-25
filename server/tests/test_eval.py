@@ -11,13 +11,16 @@ import pytest
 from anamnesis.eval import (
     BaselineReport,
     CaseRank,
+    CaseRegression,
     EvalCase,
     ExperimentReport,
+    IdDetail,
     MergeExperimentReport,
     append_candidates,
     baseline_to_dict,
     build_eval_candidates,
     case_ranks,
+    compute_regressions,
     estimate_tokens,
     inject_working_set,
     load_eval_set,
@@ -175,6 +178,55 @@ def test_case_ranks_none_when_not_in_window(tmp_path: Path):
     [cr] = case_ranks(store, [case], limit=5)
     assert cr.rank is None
     store.close()
+
+
+def test_compute_regressions_keep_artifact():
+    before = [CaseRank(query="q", relevant_ids=["A"], rank=1, result_ids=["A", "X"])]
+    after = [CaseRank(query="q", relevant_ids=["A"], rank=None, result_ids=["X", "K", "Y"])]
+    regs = compute_regressions(before, after, superseded={"A"}, superseders={"A": "K"}, ks=(1, 3))
+    assert len(regs) == 1
+    assert isinstance(regs[0], CaseRegression)
+    assert regs[0].verdict == "artifact"
+    d = regs[0].details[0]
+    assert isinstance(d, IdDetail)
+    assert d.superseded and d.superseder_id == "K" and d.superseder_rank == 2
+
+
+def test_compute_regressions_real_loss_displacement():
+    before = [CaseRank(query="q", relevant_ids=["A"], rank=1, result_ids=["A", "X"])]
+    after = [CaseRank(query="q", relevant_ids=["A"], rank=11, result_ids=["X"] * 10 + ["A"])]
+    regs = compute_regressions(before, after, superseded=set(), superseders={}, ks=(1, 3, 5, 8))
+    assert len(regs) == 1
+    assert regs[0].verdict == "real-loss"
+    assert regs[0].after_rank == 11
+    assert regs[0].details[0].superseded is False
+
+
+def test_compute_regressions_real_loss_superseder_not_retrieved():
+    before = [CaseRank(query="q", relevant_ids=["A"], rank=1, result_ids=["A"])]
+    after = [CaseRank(query="q", relevant_ids=["A"], rank=None, result_ids=["X", "Y"])]
+    regs = compute_regressions(before, after, superseded={"A"}, superseders={"A": "K"}, ks=(1, 3))
+    assert regs[0].verdict == "real-loss"
+    d = regs[0].details[0]
+    assert d.superseded and d.superseder_id == "K" and d.superseder_rank is None
+
+
+def test_compute_regressions_omits_non_regression_and_prior_miss():
+    improved = [CaseRank(query="q", relevant_ids=["A"], rank=2, result_ids=["X", "A"])]
+    improved_after = [CaseRank(query="q", relevant_ids=["A"], rank=1, result_ids=["A"])]
+    assert compute_regressions(improved, improved_after, set(), {}, (1, 3)) == []
+
+    prior_miss = [CaseRank(query="q", relevant_ids=["A"], rank=None, result_ids=["X"])]
+    prior_miss_after = [CaseRank(query="q", relevant_ids=["A"], rank=None, result_ids=["Y"])]
+    assert compute_regressions(prior_miss, prior_miss_after, set(), {}, (1,)) == []
+
+
+def test_compute_regressions_multi_id_best_explanation():
+    before = [CaseRank(query="q", relevant_ids=["A", "B"], rank=1, result_ids=["A", "B"])]
+    after = [CaseRank(query="q", relevant_ids=["A", "B"], rank=None, result_ids=["K", "Z"])]
+    regs = compute_regressions(before, after, superseded={"A"}, superseders={"A": "K"}, ks=(1, 3))
+    assert regs[0].verdict == "artifact"
+    assert len(regs[0].details) == 2
 
 
 def test_inject_working_set_drops_reflected_episodic(tmp_path: Path):
