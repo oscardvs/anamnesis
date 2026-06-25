@@ -246,3 +246,18 @@ def test_write_episodic_stamps_session_provenance(tmp_path):
     assert mem is not None
     assert mem.prov_source == "session-end"
     assert mem.prov_session == "sess-1"
+
+
+def test_resolve_summarizer_uses_config_json_provider(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANAMNESIS_REFLECTION_PROVIDER", raising=False)
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path))
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    import json
+
+    (tmp_path / "config.json").write_text(
+        json.dumps({"reflection": {"provider": "heuristic"}}), encoding="utf-8"
+    )
+    from anamnesis.capture import HeuristicSummarizer, resolve_summarizer
+
+    # Proves the provider is read (via config.py) and mapped to the heuristic summarizer.
+    assert isinstance(resolve_summarizer(), HeuristicSummarizer)

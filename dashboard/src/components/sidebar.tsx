@@ -12,6 +12,7 @@ import {
   Library,
   Plus,
   Server,
+  Settings,
   Sparkles,
   X,
 } from "lucide-react";
@@ -27,6 +28,7 @@ const NAV = [
   { label: "Review", href: "/review", icon: Sparkles },
   { label: "History", href: "/history", icon: GitCommitVertical },
   { label: "Machines", href: "/machines", icon: Server },
+  { label: "Settings", href: "/settings", icon: Settings },
 ];
 
 /** Public documentation site (Fumadocs, deployed to GitHub Pages). */

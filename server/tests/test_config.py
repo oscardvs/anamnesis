@@ -1,6 +1,11 @@
 import json
+import os
+import stat
 from pathlib import Path
 
+import pytest
+
+import anamnesis.config as config
 from anamnesis.config import (
     resolve_claude_home,
     resolve_home,
@@ -79,3 +84,127 @@ def test_server_reexports_resolvers_stay_importable():
     from anamnesis.server import resolve_home as rh
 
     assert rh is rc
+
+
+def _write_cfg(home: Path, data: dict) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "config.json").write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_reflection_settings_from_file_when_env_unset(tmp_path, monkeypatch):
+    for var in (
+        "ANAMNESIS_REFLECTION_PROVIDER",
+        "ANAMNESIS_REFLECTION_MODEL",
+        "ANAMNESIS_REFLECTION_BASE_URL",
+        "ANAMNESIS_REFLECTION_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "OPENAI_API_KEY",
+        "ANAMNESIS_REFLECTION_TIMEOUT",
+        "ANAMNESIS_REFLECTION_MAX_TOKENS",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path))
+    _write_cfg(
+        tmp_path,
+        {
+            "reflection": {
+                "provider": "DeepSeek",
+                "model": "deepseek-v4-flash",
+                "base_url": "https://api.deepseek.com",
+                "api_key": "sk-file",
+                "timeout": 45,
+                "max_tokens": 90000,
+            }
+        },
+    )
+    s = config.resolve_reflection_settings()
+    assert s.provider == "deepseek"
+    assert s.model == "deepseek-v4-flash"
+    assert s.base_url == "https://api.deepseek.com"
+    assert s.api_key == "sk-file"
+    assert s.timeout == 45.0
+    assert s.max_tokens == 90000
+
+
+def test_env_overrides_file_and_defaults_fill_gaps(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path))
+    _write_cfg(tmp_path, {"reflection": {"provider": "deepseek", "model": "m-file"}})
+    monkeypatch.setenv("ANAMNESIS_REFLECTION_MODEL", "m-env")
+    monkeypatch.delenv("ANAMNESIS_REFLECTION_TIMEOUT", raising=False)
+    s = config.resolve_reflection_settings()
+    assert s.model == "m-env"  # env wins
+    assert s.provider == "deepseek"  # file used when env unset
+    assert s.timeout == 30.0  # default fills the gap
+    assert s.max_tokens == 120000
+
+
+def test_provider_defaults_to_heuristic(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path))
+    monkeypatch.delenv("ANAMNESIS_REFLECTION_PROVIDER", raising=False)
+    assert config.resolve_reflection_provider() == "heuristic"
+
+
+def test_update_store_config_sets_nested_and_perms(tmp_path):
+    config.update_store_config(tmp_path, {"machine_id": "m1", "reflection.provider": "deepseek"})
+    config.update_store_config(tmp_path, {"reflection.model": "deepseek-v4-flash"})
+    data = json.loads((tmp_path / "config.json").read_text())
+    assert data["machine_id"] == "m1"
+    assert data["reflection"] == {"provider": "deepseek", "model": "deepseek-v4-flash"}
+    mode = stat.S_IMODE(os.stat(tmp_path / "config.json").st_mode)
+    assert mode == 0o600
+
+
+def test_update_store_config_unset_removes_key(tmp_path):
+    config.update_store_config(tmp_path, {"reflection.api_key": "sk-x", "reflection.model": "m"})
+    config.update_store_config(tmp_path, {"reflection.api_key": config.UNSET})
+    data = json.loads((tmp_path / "config.json").read_text())
+    assert "api_key" not in data["reflection"]
+    assert data["reflection"]["model"] == "m"
+
+
+def test_save_store_config_atomic_no_temp_left(tmp_path):
+    config.save_store_config(tmp_path, {"machine_id": "x"})
+    leftovers = [p.name for p in tmp_path.iterdir() if p.name.startswith(".tmp-anamnesis-")]
+    assert leftovers == []
+
+
+def test_validate_setting_rejects_unknown_and_bad_values():
+    with pytest.raises(ValueError):
+        config.validate_setting("reflection.nope", "x")
+    with pytest.raises(ValueError):
+        config.validate_setting("reflection.provider", "gpt")
+    with pytest.raises(ValueError):
+        config.validate_setting("reflection.timeout", "soon")
+    with pytest.raises(ValueError):
+        config.validate_setting("reflection.base_url", "api.deepseek.com")
+    assert config.validate_setting("reflection.provider", "DeepSeek") == "deepseek"
+    assert config.validate_setting("reflection.timeout", "45") == 45.0
+    assert config.validate_setting("reflection.max_tokens", "90000") == 90000
+
+
+def test_mask_key():
+    assert config.mask_key("") == ""
+    assert config.mask_key("short") == "set"
+    assert config.mask_key("sk-abcdef") == "sk-...ef"
+
+
+def test_settings_view_masks_key_and_reports_source(tmp_path, monkeypatch):
+    for var in (
+        "ANAMNESIS_REFLECTION_PROVIDER",
+        "ANAMNESIS_REFLECTION_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "OPENAI_API_KEY",
+        "ANAMNESIS_REFLECTION_MODEL",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path))
+    config.update_store_config(
+        tmp_path, {"reflection.provider": "deepseek", "reflection.api_key": "sk-abcdef"}
+    )
+    monkeypatch.setenv("ANAMNESIS_REFLECTION_MODEL", "m-env")
+    view = config.settings_view()
+    assert "sk-abcdef" not in json.dumps(view)  # raw key never present
+    assert view["reflection"]["api_key_set"] is True
+    assert view["reflection"]["api_key_preview"] == "sk-...ef"
+    assert view["reflection"]["provider"]["source"] == "file"
+    assert view["reflection"]["model"]["source"] == "env"

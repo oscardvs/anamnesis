@@ -11,12 +11,12 @@ no extra dependency. Tests inject a fake client and never touch the network.
 from __future__ import annotations
 
 import json
-import os
 import sys
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from anamnesis import config
 from anamnesis.capture import HeuristicSummarizer, ParsedSession, Summarizer, SummaryResult
 from anamnesis.redact import redact
 
@@ -150,36 +150,16 @@ class ReflectionConfig:
     max_tokens: int
 
 
-def _env(*names: str) -> str:
-    for name in names:
-        value = os.environ.get(name)
-        if value:
-            return value
-    return ""
-
-
 def resolve_reflection_config() -> ReflectionConfig:
-    """Read the reflection config from the environment (machine-local, never synced)."""
-    provider = (os.environ.get("ANAMNESIS_REFLECTION_PROVIDER") or "heuristic").lower()
-    try:
-        timeout = float(os.environ.get("ANAMNESIS_REFLECTION_TIMEOUT", "30"))
-    except ValueError:
-        timeout = 30.0
-    try:
-        max_tokens = int(os.environ.get("ANAMNESIS_REFLECTION_MAX_TOKENS", "120000"))
-    except ValueError:
-        max_tokens = 120_000
+    """Read the reflection config (env > config.json > default, machine-local)."""
+    s = config.resolve_reflection_settings()
     return ReflectionConfig(
-        provider=provider,
-        model=_env("ANAMNESIS_REFLECTION_MODEL"),
-        base_url=_env("ANAMNESIS_REFLECTION_BASE_URL"),
-        api_key=_env(
-            "ANAMNESIS_REFLECTION_API_KEY",
-            "DEEPSEEK_API_KEY",
-            "OPENAI_API_KEY",
-        ),
-        timeout=timeout,
-        max_tokens=max_tokens,
+        provider=s.provider,
+        model=s.model,
+        base_url=s.base_url,
+        api_key=s.api_key,
+        timeout=s.timeout,
+        max_tokens=s.max_tokens,
     )
 
 
@@ -226,3 +206,25 @@ def make_llm_summarizer() -> Summarizer:
         model_label=f"{cfg.provider}/{cfg.model}",
         max_chars=cfg.max_tokens * 4,
     )
+
+
+def ping_reflection(
+    settings: config.ReflectionSettings,
+    *,
+    client_factory: Callable[[str, str, str, float], LLMClient] = _http_client,
+) -> tuple[bool, str]:
+    """Verify the configured provider with one minimal request. Returns (ok, message)."""
+    if settings.provider == "heuristic":
+        return True, "provider=heuristic (no LLM configured; nothing to test)"
+    if not (settings.model and settings.base_url and settings.api_key):
+        return False, "incomplete config (need provider, model, base_url, api_key)"
+    client = client_factory(
+        settings.base_url, settings.api_key, settings.model, min(settings.timeout, 15.0)
+    )
+    try:
+        reply = client("Reply with the single word: ok", "ping")
+    except Exception as exc:  # noqa: BLE001 - report any failure as a failed test
+        return False, f"request failed: {exc}"
+    if reply.strip():
+        return True, f"ok (provider={settings.provider} model={settings.model})"
+    return False, "empty reply from provider"
