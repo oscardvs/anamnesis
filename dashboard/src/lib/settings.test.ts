@@ -1,11 +1,18 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./cli", () => ({
   runCli: vi.fn(),
 }));
 
 import { runCli } from "./cli";
-import { getSettings } from "./settings";
+import { getSettings, setSettings } from "./settings";
+
+const mockCli = runCli as ReturnType<typeof vi.fn>;
+
+beforeEach(() => {
+  mockCli.mockReset();
+  mockCli.mockResolvedValue({ stdout: "", stderr: "" });
+});
 
 describe("getSettings", () => {
   it("parses config list --json and never exposes a raw key", async () => {
@@ -23,7 +30,7 @@ describe("getSettings", () => {
         api_key_source: "file",
       },
     };
-    (runCli as ReturnType<typeof vi.fn>).mockResolvedValue({
+    mockCli.mockResolvedValue({
       stdout: JSON.stringify(payload),
       stderr: "",
     });
@@ -33,5 +40,21 @@ describe("getSettings", () => {
     expect(s.reflection.apiKeyPreview).toBe("sk-...ef");
     expect(s.envOverrides).toContain("reflection.model");
     expect(JSON.stringify(s)).not.toContain("undefined");
+  });
+});
+
+describe("setSettings", () => {
+  it("leaves a blank apiKey unchanged (never shells it to the CLI)", async () => {
+    await setSettings({ model: "deepseek-v4-flash", apiKey: "" });
+    expect(mockCli).toHaveBeenCalledTimes(1);
+    const args = mockCli.mock.calls[0][0] as string[];
+    expect(args).toEqual(["config", "set", "reflection.model", "deepseek-v4-flash"]);
+    expect(args).not.toContain("reflection.api_key");
+  });
+
+  it("clears the stored key via config unset reflection.api_key", async () => {
+    await setSettings({ clearApiKey: true });
+    expect(mockCli).toHaveBeenCalledTimes(1);
+    expect(mockCli).toHaveBeenCalledWith(["config", "unset", "reflection.api_key"]);
   });
 });
