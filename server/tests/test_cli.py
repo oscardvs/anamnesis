@@ -594,11 +594,63 @@ def test_cmd_merge_apply_writes_and_supersedes(tmp_path, monkeypatch, capsys):
     store.close()
 
     monkeypatch.setattr("anamnesis.cli.make_merger", _fake_merger)
-    assert main(["merge", "--apply", "--no-sync"]) == 0
+    assert main(["merge", "--apply", "--no-gate", "--no-sync"]) == 0
     assert "superseded" in capsys.readouterr().out
 
     store = MemoryStore(root=tmp_path / "store")
     assert len(store.superseded_ids()) == 2  # 3 notes -> keep 1, supersede 2
+    store.close()
+
+
+def test_cmd_merge_apply_gated_requires_eval_set(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.setenv("ANAMNESIS_MERGE_MIN_DURABLE", "2")
+    store = MemoryStore(root=tmp_path / "store")
+    _seed_durable(store, "p", 3)
+    store.close()
+    monkeypatch.setattr("anamnesis.cli.make_merger", _fake_merger)
+
+    rc = main(["merge", "--apply", "--no-sync"])  # gated by default, no eval set present
+    out = capsys.readouterr().out
+    assert rc != 0
+    assert "eval set" in out
+    store = MemoryStore(root=tmp_path / "store")
+    assert store.superseded_ids() == set()  # nothing written
+    store.close()
+
+
+def test_cmd_merge_apply_gated_applies_safe_groups(tmp_path, monkeypatch, capsys):
+    from anamnesis.eval import EvalCase, save_eval_set
+
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.setenv("ANAMNESIS_MERGE_MIN_DURABLE", "2")
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    store = MemoryStore(root=tmp_path / "store")
+    # Two near-identical notes the keep-first merger will collapse; an eval case whose
+    # target is the superseded one but whose terms are also in the survivor -> recall holds.
+    first = store.write(
+        type="semantic", title="alpha widget facts", body="alpha widget facts", project="p"
+    )
+    store.write(
+        type="semantic",
+        title="alpha widget facts duplicate",
+        body="alpha widget facts",
+        project="p",
+    )
+    store.close()
+    save_eval_set(
+        tmp_path / "store" / "eval" / "eval.jsonl",
+        [EvalCase(query="alpha widget facts", relevant_ids=[first.id], approved=True)],
+    )
+    monkeypatch.setattr("anamnesis.cli.make_merger", _fake_merger)
+
+    rc = main(["merge", "--apply", "--no-sync"])  # gated by default
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "applied" in out
+    store = MemoryStore(root=tmp_path / "store")
+    # The keep-first merger superseded the newer duplicate; gate kept it (recall held).
+    assert len(store.superseded_ids()) == 1
     store.close()
 
 

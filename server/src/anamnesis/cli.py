@@ -27,13 +27,21 @@ from anamnesis.eval import (
     render_baseline,
     render_experiment,
     render_merge_experiment,
+    resolve_merge_gate_k,
     run_baseline,
     run_merge_experiment,
     run_reflection_experiment,
+    select_safe_groups,
 )
 from anamnesis.inject import render_inject, resolve_project_key, select_inject
 from anamnesis.llm_summarizer import ping_reflection
-from anamnesis.merge import apply_merge, make_merger, resolve_min_durable, select_mergeable
+from anamnesis.merge import (
+    apply_groups,
+    apply_merge,
+    make_merger,
+    resolve_min_durable,
+    select_mergeable,
+)
 from anamnesis.migrate import apply_migration, plan_migration
 from anamnesis.native_import import ImportResult, import_native
 from anamnesis.onboard import InitOptions, run_init
@@ -101,6 +109,8 @@ def build_parser() -> argparse.ArgumentParser:
     pmrg.add_argument("--project", default=None)
     pmrg.add_argument("--apply", action="store_true")
     pmrg.add_argument("--no-sync", action="store_true")
+    pmrg.add_argument("--no-gate", action="store_true")
+    pmrg.add_argument("--eval-set", dest="eval_set", default=None)
     pev = sub.add_parser(
         "eval", help="measure recall + working-set shrink (build | run | experiment)"
     )
@@ -414,6 +424,25 @@ def cmd_merge(args: argparse.Namespace) -> int:
             projects = [args.project]
         else:
             projects = sorted({m.project for m in store.list(scope="portable")})
+        # Recall-gated apply needs the eval set up front.
+        cases = None
+        if args.apply and not args.no_gate:
+            eval_path = _eval_set_path(args)
+            if not eval_path.exists():
+                print(
+                    f"merge --apply is recall-gated; no eval set at {eval_path}. "
+                    "Run `anamnesis eval build` to create one, or pass --no-gate to "
+                    "apply without the gate."
+                )
+                return 1
+            cases, warnings = load_eval_set(eval_path, store=store)
+            for w in warnings:
+                print(f"merge: warning: {w}")
+            if not cases:
+                print(f"merge --apply is recall-gated; no approved eval cases in {eval_path}.")
+                return 1
+
+        gate_k = resolve_merge_gate_k()
         superseded = 0
         for project in projects:
             notes = select_mergeable(store, project)
@@ -439,16 +468,54 @@ def cmd_merge(args: argparse.Namespace) -> int:
                 if not groups:
                     print(f"merge: {project}: no redundant groups found (dry-run)")
                 continue
+            if args.no_gate:
+                try:
+                    result = apply_merge(store, project, merger, machine_id=resolve_machine_id())
+                except Exception as exc:  # noqa: BLE001 - one project must not kill the run
+                    print(f"merge: {project}: failed ({exc}); skipped")
+                    continue
+                superseded += result.notes_superseded
+                print(
+                    f"merge: {project}: {result.groups_applied} group(s), "
+                    f"{result.notes_synthesized} synthesized, {result.notes_superseded} superseded"
+                )
+                continue
+            # Gated apply.
             try:
-                result = apply_merge(store, project, merger, machine_id=resolve_machine_id())
+                groups = merger.propose(notes)
             except Exception as exc:  # noqa: BLE001 - one project must not kill the run
                 print(f"merge: {project}: failed ({exc}); skipped")
                 continue
-            superseded += result.notes_superseded
-            print(
-                f"merge: {project}: {result.groups_applied} group(s), "
-                f"{result.notes_synthesized} synthesized, {result.notes_superseded} superseded"
+            assert cases is not None  # set when gating
+            accepted, verdicts = select_safe_groups(
+                store,
+                project,
+                groups,
+                cases,
+                machine_id=resolve_machine_id(),
+                model_label=merger.model_label,
+                k_gate=gate_k,
             )
+            if accepted:
+                result = apply_groups(
+                    store,
+                    project,
+                    accepted,
+                    machine_id=resolve_machine_id(),
+                    model_label=merger.model_label,
+                )
+                superseded += result.notes_superseded
+            rejected = [v for v in verdicts if not v.accepted]
+            print(f"merge: {project}: {len(accepted)} group(s) applied, {len(rejected)} rejected")
+            for v in rejected:
+                if v.group.action == "keep":
+                    desc = f"keep {v.group.keeper_id}"
+                else:
+                    desc = f"synthesize {v.group.title!r}"
+                print(
+                    f"merge: {project}: rejected {desc} "
+                    f"(recall@{gate_k} {v.recall_before:.3f} -> {v.recall_after:.3f})"
+                )
         if args.apply and superseded:
             if args.no_sync:
                 store.reindex()
