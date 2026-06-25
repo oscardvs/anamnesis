@@ -16,12 +16,14 @@ from anamnesis.eval import (
     ExperimentReport,
     IdDetail,
     MergeExperimentReport,
+    _first_hit_rank,
     append_candidates,
     baseline_to_dict,
     build_eval_candidates,
     case_ranks,
     compute_regressions,
     estimate_tokens,
+    expand_relevant,
     inject_working_set,
     load_eval_set,
     recall_at_k,
@@ -178,6 +180,31 @@ def test_case_ranks_none_when_not_in_window(tmp_path: Path):
     [cr] = case_ranks(store, [case], limit=5)
     assert cr.rank is None
     store.close()
+
+
+def test_first_hit_rank_finds_first_relevant():
+    assert _first_hit_rank(["x", "a", "b"], {"a", "b"}) == 2
+
+
+def test_first_hit_rank_none_when_absent():
+    assert _first_hit_rank(["x", "y"], {"a"}) is None
+
+
+def test_expand_relevant_passthrough_without_superseders():
+    assert expand_relevant(["a"], {}) == {"a"}
+
+
+def test_expand_relevant_credits_direct_survivor():
+    assert expand_relevant(["a"], {"a": "b"}) == {"a", "b"}
+
+
+def test_expand_relevant_follows_transitive_chain():
+    assert expand_relevant(["a"], {"a": "b", "b": "c"}) == {"a", "b", "c"}
+
+
+def test_expand_relevant_terminates_on_cycle():
+    # a -> b -> a would loop without a visited guard
+    assert expand_relevant(["a"], {"a": "b", "b": "a"}) == {"a", "b"}
 
 
 def test_compute_regressions_keep_artifact():

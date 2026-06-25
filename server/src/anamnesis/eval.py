@@ -217,6 +217,34 @@ class RecallReport:
     mrr: float
 
 
+def _first_hit_rank(result_ids: Sequence[str], relevant: set[str]) -> int | None:
+    """1-based rank of the first result id in ``relevant``, or None."""
+    for i, rid in enumerate(result_ids, start=1):
+        if rid in relevant:
+            return i
+    return None
+
+
+def expand_relevant(relevant_ids: Iterable[str], superseders: dict[str, str]) -> set[str]:
+    """Relevant ids plus, transitively, the notes that supersede them.
+
+    Once a note is superseded it is hidden from search, so only its survivor is
+    retrievable; crediting the survivor measures whether the information is still
+    reachable. Follows the supersede chain with a visited guard against cycles.
+    """
+    expanded: set[str] = set()
+    frontier = list(relevant_ids)
+    while frontier:
+        rid = frontier.pop()
+        if rid in expanded:
+            continue
+        expanded.add(rid)
+        survivor = superseders.get(rid)
+        if survivor is not None:
+            frontier.append(survivor)
+    return expanded
+
+
 def recall_at_k(
     store: MemoryStore,
     cases: Sequence[EvalCase],
@@ -251,12 +279,7 @@ def case_ranks(store: MemoryStore, cases: Sequence[EvalCase], limit: int) -> lis
     out: list[CaseRank] = []
     for case in cases:
         result_ids = [m.id for m in store.search(case.query, k=limit)]
-        relevant = set(case.relevant_ids)
-        rank: int | None = None
-        for i, rid in enumerate(result_ids, start=1):
-            if rid in relevant:
-                rank = i
-                break
+        rank = _first_hit_rank(result_ids, set(case.relevant_ids))
         out.append(
             CaseRank(
                 query=case.query,
