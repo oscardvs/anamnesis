@@ -11,7 +11,7 @@ import { Panel, Spinner } from "@/components/ui/misc";
 import { cn } from "@/lib/cn";
 import type { Settings } from "@/lib/settings";
 
-import { isOverridden, maskedKeyLabel, OVERRIDE_BADGE } from "./helpers";
+import { buildPatch, isOverridden, maskedKeyLabel, OVERRIDE_BADGE } from "./helpers";
 
 const inputClass =
   "h-9 w-full rounded-lg bezel bg-surface-2 px-3 text-sm text-text outline-none transition-colors placeholder:text-faint focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-60";
@@ -76,17 +76,21 @@ export function SettingsForm({ initial }: { initial: Settings }) {
   const onSave = async () => {
     setSaving(true);
     try {
-      const patch: Record<string, unknown> = {
-        machineId,
-        remote,
-        provider,
-        model,
-        baseUrl,
-        timeout,
-        maxTokens,
-      };
-      if (clearApiKey) patch.clearApiKey = true;
-      else if (replacingKey && apiKey) patch.apiKey = apiKey;
+      const patch = buildPatch(
+        {
+          machineId,
+          remote,
+          provider,
+          model,
+          baseUrl,
+          timeout,
+          maxTokens,
+          replacingKey,
+          apiKey,
+          clearKey: clearApiKey,
+        },
+        o,
+      );
 
       const res = await fetch("/api/settings", {
         method: "POST",
