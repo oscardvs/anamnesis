@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import shutil
 import statistics
 import tempfile
@@ -21,7 +22,14 @@ from typing import Any
 
 from anamnesis.inject import render_inject, select_inject
 from anamnesis.llm_summarizer import LLMClient, _strip_fences, _window
-from anamnesis.merge import Merger, apply_merge, resolve_min_durable, select_mergeable
+from anamnesis.merge import (
+    MergeGroup,
+    Merger,
+    apply_groups,
+    apply_merge,
+    resolve_min_durable,
+    select_mergeable,
+)
 from anamnesis.redact import redact
 from anamnesis.reflect import Reflector, apply_reflection, resolve_min_episodics, select_unreflected
 from anamnesis.store import Memory, MemoryStore
@@ -718,3 +726,57 @@ def render_merge_experiment(report: MergeExperimentReport) -> str:
             else:
                 lines.append("    => REAL LOSS (recall genuinely degraded)")
     return "\n".join(lines)
+
+
+def resolve_merge_gate_k() -> int:
+    """Recall@k the merge gate protects (env ANAMNESIS_MERGE_GATE_K, default 8 = inject window)."""
+    try:
+        return int(os.environ.get("ANAMNESIS_MERGE_GATE_K", "8"))
+    except ValueError:
+        return 8
+
+
+@dataclass
+class GroupVerdict:
+    """One merge group's recall-gate outcome (for reporting)."""
+
+    group: MergeGroup
+    accepted: bool
+    recall_before: float  # baseline recall@k_gate
+    recall_after: float  # recall@k_gate with this group added to the accepted set
+
+
+def select_safe_groups(
+    store: MemoryStore,
+    project: str,
+    groups: list[MergeGroup],
+    cases: Sequence[EvalCase],
+    *,
+    machine_id: str,
+    model_label: str,
+    k_gate: int,
+) -> tuple[list[MergeGroup], list[GroupVerdict]]:
+    """Return the subset of groups that keep recall@k_gate >= the clean baseline.
+
+    Incremental acceptance: measure the baseline once on the unmodified store, then for
+    each group try (accepted-so-far + group) on a fresh sandbox copy and keep the group
+    only if recall@k_gate stays >= baseline. The final accepted set therefore never
+    lowers recall@k_gate. The live store is never mutated.
+    """
+    baseline = recall_at_k(store, cases, ks=(k_gate,)).recall_at[k_gate]
+    accepted: list[MergeGroup] = []
+    verdicts: list[GroupVerdict] = []
+    for group in groups:
+        candidate = accepted + [group]
+        with sandbox_store(store) as sandbox:
+            apply_groups(
+                sandbox, project, candidate, machine_id=machine_id, model_label=model_label
+            )
+            after = recall_at_k(sandbox, cases, ks=(k_gate,)).recall_at[k_gate]
+        ok = after >= baseline
+        if ok:
+            accepted = candidate
+        verdicts.append(
+            GroupVerdict(group=group, accepted=ok, recall_before=baseline, recall_after=after)
+        )
+    return accepted, verdicts

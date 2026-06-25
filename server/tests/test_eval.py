@@ -14,6 +14,7 @@ from anamnesis.eval import (
     CaseRegression,
     EvalCase,
     ExperimentReport,
+    GroupVerdict,
     IdDetail,
     MergeExperimentReport,
     _first_hit_rank,
@@ -30,11 +31,13 @@ from anamnesis.eval import (
     render_baseline,
     render_experiment,
     render_merge_experiment,
+    resolve_merge_gate_k,
     run_baseline,
     run_merge_experiment,
     run_reflection_experiment,
     sandbox_store,
     save_eval_set,
+    select_safe_groups,
 )
 from anamnesis.merge import Merger
 from anamnesis.reflect import Reflector
@@ -645,4 +648,61 @@ def test_merge_experiment_breakdown_labels_artifact(tmp_path: Path, monkeypatch)
     assert "per-case regressions" in text
     assert "ARTIFACT" in text
     assert target.id in text  # full id printed for re-keying
+    store.close()
+
+
+def test_resolve_merge_gate_k_default_and_env(monkeypatch):
+    monkeypatch.delenv("ANAMNESIS_MERGE_GATE_K", raising=False)
+    assert resolve_merge_gate_k() == 8
+    monkeypatch.setenv("ANAMNESIS_MERGE_GATE_K", "5")
+    assert resolve_merge_gate_k() == 5
+    monkeypatch.setenv("ANAMNESIS_MERGE_GATE_K", "notanint")
+    assert resolve_merge_gate_k() == 8
+
+
+def test_select_safe_groups_accepts_recall_preserving_group(tmp_path: Path):
+    from anamnesis.merge import MergeGroup
+
+    store = MemoryStore(tmp_path / "s")
+    # 'old' is the eval target; 'keeper' is rich in the same query terms, so after the
+    # keep merge the keeper is still retrieved for the query -> recall@8 holds.
+    old = store.write(type="semantic", title="WAL lock conflicts", body="use WAL", project="p")
+    keeper = store.write(
+        type="semantic",
+        title="WAL lock conflicts and WAL mode",
+        body="use WAL mode always",
+        project="p",
+    )
+    cases = [EvalCase(query="WAL lock conflicts WAL mode", relevant_ids=[old.id])]
+    groups = [MergeGroup(action="keep", keeper_id=keeper.id, superseded_ids=[old.id])]
+
+    accepted, verdicts = select_safe_groups(
+        store, "p", groups, cases, machine_id="m", model_label="fake/model", k_gate=8
+    )
+    assert accepted == groups
+    assert isinstance(verdicts[0], GroupVerdict)
+    assert verdicts[0].accepted is True
+    assert store.superseded_ids() == set()  # live store untouched by gating
+    store.close()
+
+
+def test_select_safe_groups_rejects_recall_dropping_group(tmp_path: Path):
+    from anamnesis.merge import MergeGroup
+
+    store = MemoryStore(tmp_path / "s")
+    # 'old' is the eval target; the keeper is about something unrelated, so after the
+    # keep merge the target is hidden and nothing relevant is retrieved -> recall drops.
+    old = store.write(
+        type="semantic", title="quantum teleportation notes", body="entanglement", project="p"
+    )
+    keeper = store.write(type="semantic", title="grocery list", body="milk eggs", project="p")
+    cases = [EvalCase(query="quantum teleportation entanglement", relevant_ids=[old.id])]
+    groups = [MergeGroup(action="keep", keeper_id=keeper.id, superseded_ids=[old.id])]
+
+    accepted, verdicts = select_safe_groups(
+        store, "p", groups, cases, machine_id="m", model_label="fake/model", k_gate=8
+    )
+    assert accepted == []
+    assert verdicts[0].accepted is False
+    assert verdicts[0].recall_after < verdicts[0].recall_before
     store.close()
