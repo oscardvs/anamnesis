@@ -176,23 +176,21 @@ class MergeResult:
     notes_synthesized: int
 
 
-def apply_merge(
+def apply_groups(
     store: MemoryStore,
     project: str,
-    merger: Merger,
+    groups: list[MergeGroup],
     *,
     machine_id: str,
+    model_label: str,
     confidence: float = _DEFAULT_CONFIDENCE,
 ) -> MergeResult:
-    """Propose and apply merges for a project's durable notes.
+    """Apply a validated list of merge groups to a project's durable notes (no LLM call).
 
-    The LLM call happens first; if it raises or fails validation, nothing is written
-    (no fallback). For 'keep', the survivor's supersedes grows by the group's ids
-    (additive union) and it is tagged 'merged'. For 'synthesize', a new note is written
-    with prov_source='merge' and all originals superseded.
+    For 'keep', the survivor's supersedes grows by the group's ids (additive union) and
+    it is tagged 'merged'. For 'synthesize', a new note is written with prov_source='merge'
+    and all originals superseded.
     """
-    notes = select_mergeable(store, project)
-    groups = merger.propose(notes)
     superseded_count = 0
     synthesized_count = 0
     for group in groups:
@@ -212,7 +210,7 @@ def apply_merge(
                 scope="portable",
                 tags=["merge"],
                 prov_source="merge",
-                prov_model=merger.model_label,
+                prov_model=model_label,
                 confidence=confidence,
                 supersedes=list(group.superseded_ids),
             )
@@ -223,4 +221,28 @@ def apply_merge(
         groups_applied=len(groups),
         notes_superseded=superseded_count,
         notes_synthesized=synthesized_count,
+    )
+
+
+def apply_merge(
+    store: MemoryStore,
+    project: str,
+    merger: Merger,
+    *,
+    machine_id: str,
+    confidence: float = _DEFAULT_CONFIDENCE,
+) -> MergeResult:
+    """Propose and apply merges for a project's durable notes.
+
+    The LLM call happens first; if it raises or fails validation, nothing is written
+    (no fallback). Applies the proposed groups via ``apply_groups``.
+    """
+    groups = merger.propose(select_mergeable(store, project))
+    return apply_groups(
+        store,
+        project,
+        groups,
+        machine_id=machine_id,
+        model_label=merger.model_label,
+        confidence=confidence,
     )

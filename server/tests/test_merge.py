@@ -241,6 +241,35 @@ def test_apply_merge_synthesize_writes_merge_note(tmp_path):
     store.close()
 
 
+def test_apply_groups_applies_keep_and_synthesize(tmp_path):
+    from anamnesis.merge import MergeGroup, apply_groups
+
+    store = MemoryStore(root=tmp_path)
+    a = store.write(type="semantic", title="a", body="x", project="p")
+    b = store.write(type="semantic", title="b", body="y", project="p")
+    c = store.write(type="semantic", title="c", body="z", project="p")
+
+    groups = [
+        MergeGroup(action="keep", keeper_id=a.id, superseded_ids=[b.id]),
+        MergeGroup(
+            action="synthesize",
+            type="semantic",
+            title="merged c",
+            body="z consolidated",
+            superseded_ids=[c.id],
+        ),
+    ]
+    result = apply_groups(store, "p", groups, machine_id="m", model_label="fake/model")
+
+    assert result.groups_applied == 2
+    assert result.notes_synthesized == 1
+    assert result.notes_superseded == 2
+    assert store.superseded_ids() == {b.id, c.id}
+    keeper = store.get(a.id)
+    assert b.id in keeper.supersedes and "merged" in keeper.tags
+    store.close()
+
+
 def test_apply_merge_client_error_writes_nothing(tmp_path):
     from anamnesis.merge import apply_merge
 
