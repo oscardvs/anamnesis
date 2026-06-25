@@ -392,6 +392,16 @@ class MemoryStore:
         rows = self._db.execute("SELECT DISTINCT superseded_id FROM memory_supersedes").fetchall()
         return {r["superseded_id"] for r in rows}
 
+    def superseders(self) -> dict[str, str]:
+        """Map each superseded id to the note that supersedes it (the survivor).
+
+        Inverse of the supersedes relation: superseded_id -> memory_id. A
+        superseded id maps to one survivor (merge forbids id reuse across groups);
+        if the table ever held more than one, the last row wins.
+        """
+        rows = self._db.execute("SELECT memory_id, superseded_id FROM memory_supersedes").fetchall()
+        return {r["superseded_id"]: r["memory_id"] for r in rows}
+
     def reindex(self) -> int:
         """Rebuild the entire SQLite index from the markdown files. Returns count."""
         self._db.execute("DELETE FROM memories")

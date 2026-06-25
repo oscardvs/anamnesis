@@ -406,6 +406,21 @@ def test_superseded_ids_empty_when_none(tmp_path):
     store.close()
 
 
+def test_superseders_maps_superseded_to_survivor(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    old = store.write(type="semantic", title="old", body="x")
+    new = store.write(type="semantic", title="new", body="y", supersedes=[old.id])
+    assert store.superseders() == {old.id: new.id}
+    store.close()
+
+
+def test_superseders_empty_when_none(tmp_path):
+    store = MemoryStore(root=tmp_path)
+    store.write(type="semantic", title="a", body="x")
+    assert store.superseders() == {}
+    store.close()
+
+
 def test_search_excludes_superseded_but_list_includes(tmp_path):
     store = MemoryStore(root=tmp_path)
     old = store.write(type="semantic", title="alpha widget", body="the widget facts")
