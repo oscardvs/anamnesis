@@ -10,12 +10,14 @@ import pytest
 
 from anamnesis.eval import (
     BaselineReport,
+    CaseRank,
     EvalCase,
     ExperimentReport,
     MergeExperimentReport,
     append_candidates,
     baseline_to_dict,
     build_eval_candidates,
+    case_ranks,
     estimate_tokens,
     inject_working_set,
     load_eval_set,
@@ -150,6 +152,28 @@ def test_recall_at_k_empty_cases(tmp_path: Path):
     assert rep.n_cases == 0
     assert rep.recall_at == {1: 0.0, 5: 0.0}
     assert rep.mrr == 0.0
+    store.close()
+
+
+def test_case_ranks_reports_first_relevant_rank(tmp_path: Path):
+    store = MemoryStore(tmp_path / "s")
+    a = store.write(type="semantic", title="alpha beta", body="x", project="p")
+    store.write(type="semantic", title="alpha alpha alpha", body="x", project="p")
+    [cr] = case_ranks(store, [EvalCase(query="alpha", relevant_ids=[a.id])], limit=5)
+    assert isinstance(cr, CaseRank)
+    assert cr.query == "alpha"
+    assert cr.rank is not None and cr.rank >= 1
+    assert a.id in cr.result_ids
+    assert len(cr.result_ids) <= 5
+    store.close()
+
+
+def test_case_ranks_none_when_not_in_window(tmp_path: Path):
+    store = MemoryStore(tmp_path / "s")
+    store.write(type="semantic", title="unrelated note", body="nothing here", project="p")
+    case = EvalCase(query="quantum entanglement teleportation", relevant_ids=["01NONE"])
+    [cr] = case_ranks(store, [case], limit=5)
+    assert cr.rank is None
     store.close()
 
 

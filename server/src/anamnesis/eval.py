@@ -132,6 +132,16 @@ def append_candidates(path: Path, cases: Sequence[EvalCase]) -> int:
 
 
 @dataclass
+class CaseRank:
+    """Per-case retrieval result: rank of the first relevant hit and the ordered ids."""
+
+    query: str
+    relevant_ids: list[str]
+    rank: int | None  # 1-based rank of the first relevant hit, None if none in window
+    result_ids: list[str]  # the top-`limit` result ids, in order
+
+
+@dataclass
 class RecallReport:
     """Recall@k and MRR over an eval set."""
 
@@ -152,24 +162,43 @@ def recall_at_k(
     """
     if not cases:
         return RecallReport(n_cases=0, recall_at={k: 0.0 for k in ks}, mrr=0.0)
-    max_k = max(ks)
+    ranks = case_ranks(store, cases, max(ks))
     hits = {k: 0 for k in ks}
     rr_total = 0.0
+    for cr in ranks:
+        if cr.rank is not None:
+            rr_total += 1.0 / cr.rank
+            for k in ks:
+                if cr.rank <= k:
+                    hits[k] += 1
+    n = len(ranks)
+    return RecallReport(n_cases=n, recall_at={k: hits[k] / n for k in ks}, mrr=rr_total / n)
+
+
+def case_ranks(store: MemoryStore, cases: Sequence[EvalCase], limit: int) -> list[CaseRank]:
+    """Per-case search ranks via ``store.search`` (the single rank-finding path).
+
+    ``limit`` bounds how deep we look; recall uses ``max(ks)`` while the merge
+    diagnostic uses a deeper ``DIAG_LIMIT`` so it can report displaced ranks.
+    """
+    out: list[CaseRank] = []
     for case in cases:
-        result_ids = [m.id for m in store.search(case.query, k=max_k)]
+        result_ids = [m.id for m in store.search(case.query, k=limit)]
         relevant = set(case.relevant_ids)
         rank: int | None = None
         for i, rid in enumerate(result_ids, start=1):
             if rid in relevant:
                 rank = i
                 break
-        if rank is not None:
-            rr_total += 1.0 / rank
-            for k in ks:
-                if rank <= k:
-                    hits[k] += 1
-    n = len(cases)
-    return RecallReport(n_cases=n, recall_at={k: hits[k] / n for k in ks}, mrr=rr_total / n)
+        out.append(
+            CaseRank(
+                query=case.query,
+                relevant_ids=list(case.relevant_ids),
+                rank=rank,
+                result_ids=result_ids,
+            )
+        )
+    return out
 
 
 @dataclass
