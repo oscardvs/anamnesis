@@ -662,4 +662,35 @@ def render_merge_experiment(report: MergeExperimentReport) -> str:
         )
     if report.recall_regressed:
         lines.append("WARNING: recall regressed after merge")
+    regs = report.regressions
+    if regs:
+        max_k = max(report.ks)
+        lines.append("")
+        lines.append(f"per-case regressions ({len(regs)}):")
+        for r in regs:
+            lines.append(f'- "{r.query}"')
+            for d in r.details:
+                if d.superseded:
+                    if d.superseder_rank is not None:
+                        lines.append(
+                            f"    expected {d.relevant_id}  superseded -> "
+                            f"{d.superseder_id} [retrieved @rank {d.superseder_rank}]"
+                        )
+                    else:
+                        dest = d.superseder_id or "?"
+                        lines.append(
+                            f"    expected {d.relevant_id}  superseded -> {dest} [not retrieved]"
+                        )
+                else:
+                    if r.after_rank is None:
+                        where = f"not in top-{DIAG_LIMIT}"
+                    elif r.after_rank > max_k:
+                        where = f"after-rank {r.after_rank} (>{max_k})"
+                    else:
+                        where = f"after-rank {r.after_rank}"
+                    lines.append(f"    expected {d.relevant_id}  NOT superseded, {where}")
+            if r.verdict == "artifact":
+                lines.append("    => ARTIFACT (info moved; re-key eval to the superseder)")
+            else:
+                lines.append("    => REAL LOSS (recall genuinely degraded)")
     return "\n".join(lines)

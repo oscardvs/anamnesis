@@ -559,3 +559,30 @@ def test_merge_experiment_regressions_empty_when_no_cases(tmp_path: Path, monkey
     report = run_merge_experiment(store, [], _keep_first_merger(), machine_id="m", ks=(1,))
     assert report.regressions == []
     store.close()
+
+
+def test_merge_experiment_breakdown_labels_artifact(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_MERGE_MIN_DURABLE", "2")
+    store = MemoryStore(tmp_path / "s")
+    # Older target (will be superseded) and a newer keeper, both rich in the query terms.
+    target = store.write(
+        type="semantic", title="WAL lock conflicts", body="use WAL mode", project="p"
+    )
+    store.write(
+        type="semantic",
+        title="WAL lock conflicts and WAL mode",
+        body="use WAL mode always",
+        project="p",
+    )
+    cases = [EvalCase(query="WAL lock conflicts WAL mode", relevant_ids=[target.id])]
+
+    report = run_merge_experiment(store, cases, _keep_first_merger(), machine_id="m", ks=(1, 3))
+
+    regs = report.regressions
+    assert len(regs) == 1
+    assert regs[0].verdict == "artifact"
+    text = render_merge_experiment(report)
+    assert "per-case regressions" in text
+    assert "ARTIFACT" in text
+    assert target.id in text  # full id printed for re-keying
+    store.close()
