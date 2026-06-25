@@ -550,6 +550,9 @@ def render_experiment(report: ExperimentReport) -> str:
     return "\n".join(lines)
 
 
+DIAG_LIMIT = 25  # diagnostic search depth (> max(ks)) so displaced ranks are reportable
+
+
 @dataclass
 class MergeExperimentReport:
     """Before/after-merge measurement (computed on a sandbox copy)."""
@@ -560,6 +563,10 @@ class MergeExperimentReport:
     skipped: list[str]  # projects skipped (below the durable threshold)
     ks: tuple[int, ...]
     failed: list[str] = field(default_factory=list)  # projects that errored during merge
+    before_ranks: list[CaseRank] = field(default_factory=list)
+    after_ranks: list[CaseRank] = field(default_factory=list)
+    superseded: set[str] = field(default_factory=set)
+    superseders: dict[str, str] = field(default_factory=dict)
 
     @property
     def inject_delta_pct(self) -> float:
@@ -568,6 +575,12 @@ class MergeExperimentReport:
     @property
     def recall_regressed(self) -> bool:
         return _recall_regressed(self.before, self.after, self.ks)
+
+    @property
+    def regressions(self) -> list[CaseRegression]:
+        return compute_regressions(
+            self.before_ranks, self.after_ranks, self.superseded, self.superseders, self.ks
+        )
 
 
 def run_merge_experiment(
@@ -584,6 +597,8 @@ def run_merge_experiment(
     """
     with sandbox_store(store) as sandbox:
         before = run_baseline(sandbox, cases, ks)
+        before_ranks = case_ranks(sandbox, cases, DIAG_LIMIT)
+        before_superseded = sandbox.superseded_ids()
         min_durable = resolve_min_durable()
         projects = sorted({m.project for m in sandbox.list(scope="portable")})
         merged: dict[str, int] = {}
@@ -601,8 +616,23 @@ def run_merge_experiment(
                 continue
             merged[project] = result.groups_applied
         after = run_baseline(sandbox, cases, ks)
+        after_ranks = case_ranks(sandbox, cases, DIAG_LIMIT)
+        superseded = sandbox.superseded_ids() - before_superseded
+        superseders: dict[str, str] = {}
+        for note in sandbox.list():
+            for sid in note.supersedes:
+                superseders[sid] = note.id
     return MergeExperimentReport(
-        before=before, after=after, merged=merged, skipped=skipped, ks=ks, failed=failed
+        before=before,
+        after=after,
+        merged=merged,
+        skipped=skipped,
+        ks=ks,
+        failed=failed,
+        before_ranks=before_ranks,
+        after_ranks=after_ranks,
+        superseded=superseded,
+        superseders=superseders,
     )
 
 

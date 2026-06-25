@@ -525,3 +525,37 @@ def test_render_merge_experiment_flags_regression():
     report = MergeExperimentReport(before=before, after=after, merged={"p": 1}, skipped=[], ks=(1,))
     assert report.recall_regressed
     assert "REGRESSION" in render_merge_experiment(report)
+
+
+def test_merge_experiment_captures_supersession_and_ranks(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_MERGE_MIN_DURABLE", "2")
+    store = MemoryStore(tmp_path / "s")
+    notes = [
+        store.write(type="semantic", title=f"dup {i}", body="redundant " * 40, project="p")
+        for i in range(3)
+    ]
+    target = store.write(type="semantic", title="WAL lock", body="distinct topic", project="q")
+    cases = [EvalCase(query="WAL lock", relevant_ids=[target.id])]
+
+    report = run_merge_experiment(store, cases, _keep_first_merger(), machine_id="m", ks=(1,))
+
+    # keep-first merger keeps the newest note (first in select_mergeable order) and
+    # supersedes the rest; superseders maps every superseded id to that keeper.
+    assert report.superseded == set(report.superseders)
+    assert len(report.superseded) == 2
+    keeper_ids = set(report.superseders.values())
+    assert len(keeper_ids) == 1 and keeper_ids.issubset({n.id for n in notes})
+    assert {n.id for n in notes} - report.superseded == keeper_ids  # keeper not superseded
+    assert len(report.before_ranks) == 1 and len(report.after_ranks) == 1
+    assert report.before_ranks[0].query == "WAL lock"
+    store.close()
+
+
+def test_merge_experiment_regressions_empty_when_no_cases(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_MERGE_MIN_DURABLE", "2")
+    store = MemoryStore(tmp_path / "s")
+    for i in range(2):
+        store.write(type="semantic", title=f"n{i}", body="x", project="p")
+    report = run_merge_experiment(store, [], _keep_first_merger(), machine_id="m", ks=(1,))
+    assert report.regressions == []
+    store.close()
