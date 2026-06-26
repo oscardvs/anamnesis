@@ -96,6 +96,7 @@ class StoreStats:
     by_type: dict[str, int]
     by_project: dict[str, int]
     by_scope: dict[str, int] = field(default_factory=dict)
+    by_workspace: dict[str, int] = field(default_factory=dict)
 
 
 def _serialize(mem: Memory) -> str:
@@ -250,6 +251,8 @@ class MemoryStore:
         machine_id: str = "unknown",
         tags: list[str] | None = None,
         scope: Scope = "portable",
+        user_id: str = "self",
+        workspace_id: str = "personal",
         prov_source: str = "human",
         prov_model: str = "",
         prov_session: str = "",
@@ -266,6 +269,8 @@ class MemoryStore:
             project=project,
             machine_id=machine_id,
             scope=scope,
+            user_id=user_id,
+            workspace_id=workspace_id,
             tags=list(tags or []),
             created_at=now,
             updated_at=now,
@@ -313,6 +318,8 @@ class MemoryStore:
         project: str | None = None,
         type: MemoryType | None = None,
         scope: Scope | None = None,
+        user_id: str | None = None,
+        workspace_id: str | None = None,
         k: int = 8,
     ) -> list[Memory]:
         """Keyword (FTS5 BM25) search, optionally scoped by project/type/scope."""
@@ -334,6 +341,12 @@ class MemoryStore:
         if scope is not None:
             sql.append("AND m.scope = ?")
             params.append(scope)
+        if user_id is not None:
+            sql.append("AND m.user_id = ?")
+            params.append(user_id)
+        if workspace_id is not None:
+            sql.append("AND m.workspace_id = ?")
+            params.append(workspace_id)
         sql.append("AND m.id NOT IN (SELECT superseded_id FROM memory_supersedes)")
         sql.append("ORDER BY bm25(memories_fts), m.updated_at DESC LIMIT ?")
         params.append(k)
@@ -346,6 +359,8 @@ class MemoryStore:
         project: str | None = None,
         type: MemoryType | None = None,
         scope: Scope | None = None,
+        user_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> list[Memory]:
         """List memories (newest first), optionally scoped by project/type/scope."""
         sql = ["SELECT id FROM memories"]
@@ -360,6 +375,12 @@ class MemoryStore:
         if scope is not None:
             clauses.append("scope = ?")
             params.append(scope)
+        if user_id is not None:
+            clauses.append("user_id = ?")
+            params.append(user_id)
+        if workspace_id is not None:
+            clauses.append("workspace_id = ?")
+            params.append(workspace_id)
         if clauses:
             sql.append("WHERE " + " AND ".join(clauses))
         sql.append("ORDER BY updated_at DESC, id DESC")
@@ -383,7 +404,19 @@ class MemoryStore:
             r["scope"]: r["c"]
             for r in self._db.execute("SELECT scope, COUNT(*) AS c FROM memories GROUP BY scope")
         }
-        return StoreStats(total=total, by_type=by_type, by_project=by_project, by_scope=by_scope)
+        by_workspace = {
+            r["workspace_id"]: r["c"]
+            for r in self._db.execute(
+                "SELECT workspace_id, COUNT(*) AS c FROM memories GROUP BY workspace_id"
+            )
+        }
+        return StoreStats(
+            total=total,
+            by_type=by_type,
+            by_project=by_project,
+            by_scope=by_scope,
+            by_workspace=by_workspace,
+        )
 
     def get(self, memory_id: str) -> Memory:
         """Read a memory back from its markdown file (the source of truth)."""

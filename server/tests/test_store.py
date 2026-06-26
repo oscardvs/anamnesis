@@ -611,3 +611,34 @@ def test_migration_from_v2_defaults_old_notes(tmp_path):
     got = reopened.get("01OLD")
     assert got.user_id == "self"
     assert got.workspace_id == "personal"
+
+
+def test_write_persists_tenant_to_file_and_get(tmp_path):
+    store = MemoryStore(tmp_path)
+    mem = store.write(type="semantic", title="t", body="b", user_id="alice", workspace_id="team-a")
+    got = store.get(mem.id)
+    assert got.user_id == "alice"
+    assert got.workspace_id == "team-a"
+
+
+def test_search_filters_by_workspace(tmp_path):
+    store = MemoryStore(tmp_path)
+    store.write(type="semantic", title="alpha note", body="shared word", workspace_id="team-a")
+    store.write(type="semantic", title="beta note", body="shared word", workspace_id="team-b")
+    hits = store.search("shared", workspace_id="team-a")
+    assert len(hits) == 1
+    assert hits[0].workspace_id == "team-a"
+
+
+def test_list_filters_by_user(tmp_path):
+    store = MemoryStore(tmp_path)
+    store.write(type="semantic", title="a", body="b", user_id="alice")
+    store.write(type="semantic", title="c", body="d", user_id="bob")
+    assert [m.user_id for m in store.list(user_id="alice")] == ["alice"]
+
+
+def test_stats_by_workspace(tmp_path):
+    store = MemoryStore(tmp_path)
+    store.write(type="semantic", title="a", body="b")  # personal
+    store.write(type="semantic", title="c", body="d", workspace_id="team-a")
+    assert store.stats().by_workspace == {"personal": 1, "team-a": 1}
