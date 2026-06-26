@@ -1044,6 +1044,7 @@ def test_maybe_auto_reflect_swallows_reflector_error(tmp_path, monkeypatch, caps
     monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
     monkeypatch.setenv("ANAMNESIS_REFLECT_AUTO", "true")
     monkeypatch.setenv("ANAMNESIS_REFLECT_MIN_EPISODICS", "1")
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
     store = MemoryStore(root=tmp_path / "store")
     _seed_episodics(store, "p", 2)
 
@@ -1060,6 +1061,7 @@ def test_maybe_auto_reflect_swallows_reflector_error(tmp_path, monkeypatch, caps
 
     assert _maybe_auto_reflect(store, "p") == 0
     assert "auto-reflect failed" in capsys.readouterr().err
+    assert _porcelain(tmp_path / "store" / "memory") == ""
     store.close()
 
 
