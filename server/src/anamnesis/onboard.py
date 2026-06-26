@@ -116,7 +116,7 @@ def build_hooks(base: list[str], env: dict[str, str]) -> HooksMap:
                     {
                         "type": "command",
                         "command": _command_string(env, base, "capture"),
-                        "timeout": 120,
+                        "timeout": 180,
                     }
                 ]
             }

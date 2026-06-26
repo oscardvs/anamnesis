@@ -28,7 +28,7 @@
           {
             "type": "command",
             "command": "uv run --project /ABSOLUTE/PATH/TO/anamnesis/server anamnesis capture",
-            "timeout": 120
+            "timeout": 180
           }
         ]
       }

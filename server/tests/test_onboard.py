@@ -86,11 +86,19 @@ def test_build_hooks_has_four_commands_with_inline_env():
 
     end = hooks["SessionEnd"][0]["hooks"][0]
     assert end["command"].endswith("anamnesis capture")
-    assert end["timeout"] == 120
+    assert end["timeout"] == 180
 
     pre = hooks["PreCompact"][0]["hooks"][0]
     assert pre["command"].endswith("anamnesis capture --source precompact --no-sync")
     assert pre["timeout"] == 60
+
+
+def test_build_hooks_sessionend_timeout_gives_auto_reflect_headroom():
+    from anamnesis.onboard import build_hooks
+
+    hooks = build_hooks(["anamnesis"], {})
+    sessionend = hooks["SessionEnd"][0]["hooks"][0]
+    assert sessionend["timeout"] == 180
 
 
 def test_build_hooks_quotes_values_with_spaces():
