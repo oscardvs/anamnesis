@@ -2,6 +2,7 @@
 from pathlib import Path
 
 import lib
+import measure_tokens
 import setup_synthetic
 
 
@@ -88,3 +89,33 @@ def test_render_chart_svg_contains_values_and_labels():
 def test_render_chart_svg_sample_watermark():
     svg = lib.render_chart_svg(cold=1, warm=1, sample=True)
     assert "SAMPLE" in svg
+
+
+def test_run_experiment_uses_warm_block_and_computes_delta():
+    seen_prompts = []
+
+    def fake_runner(prompt: str) -> dict:
+        seen_prompts.append(prompt)
+        # cold prompt has no memory block; warm does. Make warm cheaper.
+        if prompt.startswith("# Anamnesis memory"):
+            return {"input_tokens": 3000, "output_tokens": 200}
+        return {"input_tokens": 12000, "output_tokens": 900}
+
+    out = measure_tokens.run_experiment(
+        fake_runner, inject_block="# Anamnesis memory\n- conventions\n", repeats=1
+    )
+    assert out["cold"]["avg_total_input"] == 12000
+    assert out["warm"]["avg_total_input"] == 3000
+    assert out["delta"]["total_input"] == 9000
+    # cold ran without the block, warm ran with it.
+    assert any(p.startswith("# Anamnesis memory") for p in seen_prompts)
+    assert any(not p.startswith("# Anamnesis memory") for p in seen_prompts)
+
+
+def test_inject_block_returns_the_seeded_notes(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.setenv("ANAMNESIS_IMPORT_NATIVE", "0")
+    lib.seed_store(tmp_path / "store")
+    block = measure_tokens.inject_block(tmp_path / "store", project="quotes-api")
+    assert "Anamnesis memory" in block  # the render_inject header
+    assert "envelope" in block.lower()  # the error-envelope note body
