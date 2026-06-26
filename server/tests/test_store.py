@@ -515,3 +515,43 @@ def test_open_migrates_v1_index_to_v2(tmp_path):
     count = store._db.execute("SELECT COUNT(*) AS c FROM memory_supersedes").fetchone()["c"]
     assert count == 0
     store.close()
+
+
+def test_memory_defaults_self_personal():
+    mem = Memory(id="01TEST", type="semantic", title="t", body="b")
+    assert mem.user_id == "self"
+    assert mem.workspace_id == "personal"
+
+
+def test_serialize_deserialize_roundtrips_tenant_fields():
+    mem = Memory(
+        id="01TEST",
+        type="semantic",
+        title="t",
+        body="b",
+        user_id="alice",
+        workspace_id="team-a",
+    )
+    back = _deserialize(_serialize(mem))
+    assert back.user_id == "alice"
+    assert back.workspace_id == "team-a"
+
+
+def test_deserialize_absent_tenant_keys_defaults():
+    text = (
+        "---\n"
+        "id: 01OLD\n"
+        "type: semantic\n"
+        "title: old note\n"
+        "project: global\n"
+        "machine_id: m\n"
+        "scope: portable\n"
+        "created_at: 2026-01-01T00:00:00Z\n"
+        "updated_at: 2026-01-01T00:00:00Z\n"
+        "tags: []\n"
+        "---\n"
+        "body text\n"
+    )
+    mem = _deserialize(text)
+    assert mem.user_id == "self"
+    assert mem.workspace_id == "personal"

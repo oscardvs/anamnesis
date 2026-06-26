@@ -76,6 +76,8 @@ class Memory:
     project: str = "global"
     machine_id: str = "unknown"
     scope: Scope = "portable"
+    user_id: str = "self"
+    workspace_id: str = "personal"
     tags: list[str] = field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""
@@ -105,6 +107,8 @@ def _serialize(mem: Memory) -> str:
         "project": mem.project,
         "machine_id": mem.machine_id,
         "scope": mem.scope,
+        "user_id": mem.user_id,
+        "workspace_id": mem.workspace_id,
         "prov_source": mem.prov_source,
         "confidence": mem.confidence,
     }
@@ -137,6 +141,8 @@ def _deserialize(text: str) -> Memory:
         project=meta.get("project", "global"),
         machine_id=meta.get("machine_id", "unknown"),
         scope=meta.get("scope", "portable"),
+        user_id=meta.get("user_id", "self"),
+        workspace_id=meta.get("workspace_id", "personal"),
         tags=list(meta.get("tags") or []),
         created_at=meta.get("created_at", ""),
         updated_at=meta.get("updated_at", ""),
