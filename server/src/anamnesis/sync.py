@@ -112,16 +112,26 @@ class GitSyncBackend:
             else:
                 self._git("remote", "add", "origin", self.remote)
 
-    def sync(self) -> SyncResult:
+    def commit_local(self) -> bool:
+        """Commit pending working-tree changes locally. True iff a commit was made.
+
+        The markdown is the source of truth, so a write is only durable once it is
+        committed. This is sync() step 1 on its own, so the --no-sync CLI paths can
+        reuse it: write -> commit_local -> reindex, leaving no uncommitted markdown a
+        concurrent sync could wipe.
+        """
         if not self._is_git():
             self.init()
-
-        # 1. commit local changes (the markdown is the source of truth)
         self._git("add", "-A")
         committed = self._git("diff", "--cached", "--quiet", check=False).returncode != 0
         if committed:
             stamp = datetime.now(UTC).isoformat(timespec="seconds")
             self._git("commit", "-m", f"anamnesis: sync from {self.machine_id} at {stamp}")
+        return committed
+
+    def sync(self) -> SyncResult:
+        # 1. commit local changes (the markdown is the source of truth)
+        committed = self.commit_local()
 
         if self.remote is None:
             detail = "committed locally" if committed else "nothing to commit"

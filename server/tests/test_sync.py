@@ -124,3 +124,43 @@ def test_state_reports_remote_and_head(tmp_path):
     assert st.remote == remote
     assert st.head  # a commit sha
     assert st.dirty is False
+
+
+def test_commit_local_commits_dirty_tree_and_inits_non_repo(tmp_path):
+    store = MemoryStore(root=tmp_path / "A")
+    store.write(type="semantic", title="t", body="b", project="p")
+    backend = GitSyncBackend(store.memory_dir, remote=None, machine_id="m")
+
+    assert not (store.memory_dir / ".git").exists()  # not a repo yet
+    assert backend.commit_local() is True  # inits, then commits the markdown
+    assert (store.memory_dir / ".git").is_dir()
+
+    porcelain = subprocess.run(
+        ["git", "-C", str(store.memory_dir), "status", "--porcelain"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert porcelain.strip() == ""  # working tree clean after commit
+    assert backend.state().head  # a commit sha exists
+
+
+def test_commit_local_noop_on_clean_tree(tmp_path):
+    store = MemoryStore(root=tmp_path / "A")
+    store.write(type="semantic", title="t", body="b", project="p")
+    backend = GitSyncBackend(store.memory_dir, remote=None, machine_id="m")
+
+    assert backend.commit_local() is True  # first commit
+    head1 = backend.state().head
+    assert backend.commit_local() is False  # nothing new to commit
+    assert backend.state().head == head1  # HEAD unchanged
+
+
+def test_sync_no_remote_reports_committed_via_commit_local(tmp_path):
+    store = MemoryStore(root=tmp_path / "A")
+    store.write(type="semantic", title="t", body="b", project="p")
+    backend = GitSyncBackend(store.memory_dir, remote=None, machine_id="m")
+
+    res = backend.sync()
+    assert res.detail.startswith("committed locally")
+    assert backend.sync().detail.startswith("nothing to commit")  # second sync, clean tree
