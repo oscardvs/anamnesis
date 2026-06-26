@@ -2,6 +2,7 @@
 from pathlib import Path
 
 import lib
+import make_chart
 import measure_tokens
 import setup_synthetic
 
@@ -119,3 +120,21 @@ def test_inject_block_returns_the_seeded_notes(tmp_path, monkeypatch):
     block = measure_tokens.inject_block(tmp_path / "store", project="quotes-api")
     assert "Anamnesis memory" in block  # the render_inject header
     assert "envelope" in block.lower()  # the error-envelope note body
+
+
+def test_make_chart_writes_svg_from_result(tmp_path):
+    result = tmp_path / "result.json"
+    result.write_text(
+        '{"cold": {"avg_total_input": 12000}, "warm": {"avg_total_input": 3000}}'
+    )
+    out = tmp_path / "token-chart.svg"
+    make_chart.main(["--in", str(result), "--out", str(out)])
+    svg = out.read_text()
+    assert "12,000" in svg and "3,000" in svg
+    assert "SAMPLE" not in svg
+
+
+def test_make_chart_sample_mode(tmp_path):
+    out = tmp_path / "token-chart.svg"
+    make_chart.main(["--sample", "--out", str(out)])
+    assert "SAMPLE" in out.read_text()
