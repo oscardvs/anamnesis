@@ -387,7 +387,7 @@ def test_open_migrates_old_index_db(tmp_path):
     store = MemoryStore(root=tmp_path)  # opening triggers the migration
     row = store._db.execute("SELECT prov_source FROM memories WHERE id = 'n1'").fetchone()
     assert row is not None and row["prov_source"] == "human"  # reindexed with defaults
-    assert store._db.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert store._db.execute("PRAGMA user_version").fetchone()[0] == 3
     store.close()
 
 
@@ -500,7 +500,7 @@ _V1_NOTE = (
 )
 
 
-def test_open_migrates_v1_index_to_v2(tmp_path):
+def test_open_migrates_v1_index_to_current(tmp_path):
     (tmp_path / "memory" / "semantic").mkdir(parents=True)
     (tmp_path / "memory" / "semantic" / "v1.md").write_text(_V1_NOTE, encoding="utf-8")
     db = sqlite3.connect(tmp_path / "index.db")
@@ -509,8 +509,8 @@ def test_open_migrates_v1_index_to_v2(tmp_path):
     db.commit()
     db.close()
 
-    store = MemoryStore(root=tmp_path)  # opening triggers the 1->2 migration
-    assert store._db.execute("PRAGMA user_version").fetchone()[0] == 2
+    store = MemoryStore(root=tmp_path)  # opening triggers the 1->current migration
+    assert store._db.execute("PRAGMA user_version").fetchone()[0] == 3
     assert {m.id for m in store.list()} == {"v1"}  # note survived the rebuild
     count = store._db.execute("SELECT COUNT(*) AS c FROM memory_supersedes").fetchone()["c"]
     assert count == 0
@@ -555,3 +555,59 @@ def test_deserialize_absent_tenant_keys_defaults():
     mem = _deserialize(text)
     assert mem.user_id == "self"
     assert mem.workspace_id == "personal"
+
+
+def test_index_persists_tenant_columns(tmp_path):
+    store = MemoryStore(tmp_path)
+    mem = store.put(
+        Memory(
+            id="01TASK2",
+            type="semantic",
+            title="t",
+            body="b",
+            user_id="alice",
+            workspace_id="team-a",
+        )
+    )
+    row = store._db.execute(
+        "SELECT user_id, workspace_id FROM memories WHERE id = ?", (mem.id,)
+    ).fetchone()
+    assert row["user_id"] == "alice"
+    assert row["workspace_id"] == "team-a"
+
+
+def test_schema_version_is_three(tmp_path):
+    store = MemoryStore(tmp_path)
+    assert store._db.execute("PRAGMA user_version").fetchone()[0] == 3
+
+
+def test_migration_from_v2_defaults_old_notes(tmp_path):
+    # Seed a store, then simulate an older (v2) index over markdown that lacks
+    # the new front-matter keys. Reopening must migrate (drop + reindex) and
+    # read the old note as self/personal.
+    store = MemoryStore(tmp_path)
+    old_md = (
+        "---\n"
+        "id: 01OLD\n"
+        "type: semantic\n"
+        "title: old\n"
+        "project: global\n"
+        "machine_id: m\n"
+        "scope: portable\n"
+        "created_at: 2026-01-01T00:00:00Z\n"
+        "updated_at: 2026-01-01T00:00:00Z\n"
+        "tags: []\n"
+        "---\n"
+        "body\n"
+    )
+    (store.memory_dir / "semantic").mkdir(parents=True, exist_ok=True)
+    (store.memory_dir / "semantic" / "01OLD.md").write_text(old_md, encoding="utf-8")
+    store._db.execute("PRAGMA user_version = 2")
+    store._db.commit()
+    store.close()
+
+    reopened = MemoryStore(tmp_path)
+    assert reopened._db.execute("PRAGMA user_version").fetchone()[0] == 3
+    got = reopened.get("01OLD")
+    assert got.user_id == "self"
+    assert got.workspace_id == "personal"

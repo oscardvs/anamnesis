@@ -163,6 +163,8 @@ CREATE TABLE IF NOT EXISTS memories (
   project      TEXT NOT NULL DEFAULT 'global',
   machine_id   TEXT NOT NULL,
   scope        TEXT NOT NULL DEFAULT 'portable' CHECK (scope IN ('portable','machine-local')),
+  user_id      TEXT NOT NULL DEFAULT 'self',
+  workspace_id TEXT NOT NULL DEFAULT 'personal',
   created_at   TEXT NOT NULL,
   updated_at   TEXT NOT NULL,
   prov_source  TEXT NOT NULL DEFAULT 'human'
@@ -174,6 +176,7 @@ CREATE TABLE IF NOT EXISTS memories (
 CREATE INDEX IF NOT EXISTS idx_mem_scope   ON memories(project, type, scope);
 CREATE INDEX IF NOT EXISTS idx_mem_recency ON memories(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_mem_prov    ON memories(prov_source);
+CREATE INDEX IF NOT EXISTS idx_mem_tenant  ON memories(user_id, workspace_id, project, type);
 
 CREATE TABLE IF NOT EXISTS memory_tags (
   memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
@@ -192,7 +195,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
 );
 """
 
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 
 
 class MemoryStore:
@@ -435,9 +438,9 @@ class MemoryStore:
     def _index(self, mem: Memory, rel_path: str) -> None:
         self._db.execute(
             """INSERT OR REPLACE INTO memories
-               (id, type, title, body_path, project, machine_id, scope, created_at, updated_at,
-                prov_source, prov_model, prov_session, confidence)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (id, type, title, body_path, project, machine_id, scope, user_id, workspace_id,
+                created_at, updated_at, prov_source, prov_model, prov_session, confidence)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 mem.id,
                 mem.type,
@@ -446,6 +449,8 @@ class MemoryStore:
                 mem.project,
                 mem.machine_id,
                 mem.scope,
+                mem.user_id,
+                mem.workspace_id,
                 mem.created_at,
                 mem.updated_at,
                 mem.prov_source,
