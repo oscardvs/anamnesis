@@ -8,18 +8,23 @@ store only, no personal data.
 
 ## Reproduce
 
-1. Prereqs: Node.js >=18, `npm install -g @anthropic-ai/claude-code`,
-   `export ANTHROPIC_API_KEY=sk-ant-...`.
+1. Prereqs: Node.js >=18 and the Claude Code CLI (`claude`), logged in. A Pro/Max
+   subscription works and no Anthropic Console API key is needed (the harness
+   drives `claude -p` on your existing login). Confirm with:
+   `claude -p "ok" --output-format json`.
 2. Set up the synthetic project + store:
    ```bash
    ANAMNESIS_IMPORT_NATIVE=0 uv run --project server python \
      bench/cross-machine-tokens/setup_synthetic.py \
      --store /tmp/anamnesis-demo --project-dir /tmp/quotes-api
    ```
-3. Run the measurement (averages several runs; agentic runs are non-deterministic):
+3. Run the measurement (averages several runs; agentic runs are non-deterministic).
+   Each run uses a throwaway CLAUDE_CONFIG_DIR (copied credentials + hook-free
+   settings), so your global Claude Code hooks never fire and your live config is
+   untouched:
    ```bash
-   ANAMNESIS_IMPORT_NATIVE=0 uv run --project server --with claude-agent-sdk --with anyio \
-     python bench/cross-machine-tokens/measure_tokens.py \
+   ANAMNESIS_IMPORT_NATIVE=0 uv run --project server python \
+     bench/cross-machine-tokens/measure_tokens.py \
      --store /tmp/anamnesis-demo --project-dir /tmp/quotes-api \
      --model claude-opus-4-8 --repeats 3
    ```

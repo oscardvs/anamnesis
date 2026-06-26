@@ -1,9 +1,11 @@
 # bench/cross-machine-tokens/tests/test_lib.py
+import json
 from pathlib import Path
 
 import lib
 import make_chart
 import measure_tokens
+import pytest
 import setup_synthetic
 
 
@@ -138,3 +140,45 @@ def test_make_chart_sample_mode(tmp_path):
     out = tmp_path / "token-chart.svg"
     make_chart.main(["--sample", "--out", str(out)])
     assert "SAMPLE" in out.read_text()
+
+
+def test_parse_cli_usage_extracts_usage():
+    # A trimmed `claude -p --output-format json` result (real shape).
+    stdout = json.dumps(
+        {
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "result": "done",
+            "usage": {
+                "input_tokens": 10,
+                "cache_creation_input_tokens": 12553,
+                "cache_read_input_tokens": 16491,
+                "output_tokens": 75,
+            },
+            "total_cost_usd": 0.027,
+        }
+    )
+    u = measure_tokens.parse_cli_usage(stdout)
+    assert u["input_tokens"] == 10
+    # The same parse_usage the runner feeds: total_input sums the three inputs.
+    assert lib.parse_usage(u)["total_input"] == 10 + 12553 + 16491
+
+
+def test_parse_cli_usage_raises_on_error_result():
+    stdout = json.dumps(
+        {"is_error": True, "subtype": "error_during_execution", "api_error_status": 500}
+    )
+    with pytest.raises(RuntimeError):
+        measure_tokens.parse_cli_usage(stdout)
+
+
+def test_parse_cli_usage_raises_without_usage():
+    stdout = json.dumps({"is_error": False, "result": "ok"})
+    with pytest.raises(RuntimeError):
+        measure_tokens.parse_cli_usage(stdout)
+
+
+def test_parse_cli_usage_raises_on_non_json():
+    with pytest.raises(RuntimeError):
+        measure_tokens.parse_cli_usage("not json at all")
