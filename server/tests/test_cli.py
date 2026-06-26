@@ -792,6 +792,22 @@ def test_config_set_rejects_bad_provider(tmp_path, monkeypatch, capsys):
     assert not (tmp_path / "config.json").exists()
 
 
+def test_config_set_auto_then_list_shows_it(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("ANAMNESIS_REFLECT_AUTO", raising=False)
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path))
+    assert main(["config", "set", "reflection.auto", "true"]) == 0
+    capsys.readouterr()
+    assert main(["config", "list", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["reflection"]["auto"]["value"] is True
+
+
+def test_config_set_auto_rejects_bad_value(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path))
+    assert main(["config", "set", "reflection.auto", "perhaps"]) == 2
+    assert not (tmp_path / "config.json").exists()
+
+
 def test_config_get_returns_raw_value(tmp_path, monkeypatch, capsys):
     monkeypatch.delenv("ANAMNESIS_REFLECTION_API_KEY", raising=False)
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)

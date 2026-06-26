@@ -208,3 +208,43 @@ def test_settings_view_masks_key_and_reports_source(tmp_path, monkeypatch):
     assert view["reflection"]["api_key_preview"] == "sk-...ef"
     assert view["reflection"]["provider"]["source"] == "file"
     assert view["reflection"]["model"]["source"] == "env"
+
+
+def test_resolve_auto_reflect_default_false(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path))
+    monkeypatch.delenv("ANAMNESIS_REFLECT_AUTO", raising=False)
+    assert config.resolve_auto_reflect() is False
+
+
+def test_resolve_auto_reflect_env_overrides_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path))
+    _write_cfg(tmp_path, {"reflection": {"auto": False}})
+    monkeypatch.setenv("ANAMNESIS_REFLECT_AUTO", "true")
+    assert config.resolve_auto_reflect() is True
+    monkeypatch.setenv("ANAMNESIS_REFLECT_AUTO", "0")
+    assert config.resolve_auto_reflect() is False
+
+
+def test_resolve_auto_reflect_from_config_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path))
+    monkeypatch.delenv("ANAMNESIS_REFLECT_AUTO", raising=False)
+    _write_cfg(tmp_path, {"reflection": {"auto": True}})
+    assert config.resolve_auto_reflect() is True
+
+
+def test_validate_setting_auto_parses_bool():
+    assert config.validate_setting("reflection.auto", "true") is True
+    assert config.validate_setting("reflection.auto", "False") is False
+    assert config.validate_setting("reflection.auto", "1") is True
+    assert config.validate_setting("reflection.auto", "off") is False
+    with pytest.raises(ValueError):
+        config.validate_setting("reflection.auto", "maybe")
+
+
+def test_settings_view_includes_auto(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path))
+    monkeypatch.delenv("ANAMNESIS_REFLECT_AUTO", raising=False)
+    config.update_store_config(tmp_path, {"reflection.auto": True})
+    view = config.settings_view()
+    assert view["reflection"]["auto"]["value"] is True
+    assert view["reflection"]["auto"]["source"] == "file"

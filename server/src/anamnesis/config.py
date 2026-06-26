@@ -109,6 +109,10 @@ def _float_setting(env_name: str, file_value: Any, default: float) -> float:
         return default
 
 
+def _truthy(raw: str) -> bool:
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
 def resolve_reflection_provider() -> str:
     """The reflection provider: env > config.json > 'heuristic' (lowercased)."""
     raw = (
@@ -138,6 +142,19 @@ def resolve_reflection_settings() -> ReflectionSettings:
             _float_setting("ANAMNESIS_REFLECTION_MAX_TOKENS", block.get("max_tokens"), 120000.0)
         ),
     )
+
+
+def resolve_auto_reflect() -> bool:
+    """Whether SessionEnd auto-reflect is on: env > config.json reflection.auto > False."""
+    raw = os.environ.get("ANAMNESIS_REFLECT_AUTO")
+    if raw is not None:
+        return _truthy(raw)
+    value = _reflection_block().get("auto")
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return _truthy(value)
+    return False
 
 
 UNSET = object()  # sentinel: passed as an update value to remove a key
@@ -203,6 +220,7 @@ KNOWN_KEYS = (
     "reflection.api_key",
     "reflection.timeout",
     "reflection.max_tokens",
+    "reflection.auto",
 )
 
 
@@ -226,6 +244,13 @@ def validate_setting(key: str, value: str) -> Any:
             raise ValueError("max_tokens must be an integer") from None
     if key == "reflection.base_url" and not value.startswith(("http://", "https://")):
         raise ValueError("base_url must start with http:// or https://")
+    if key == "reflection.auto":
+        low = value.strip().lower()
+        if low in ("true", "1", "yes", "on"):
+            return True
+        if low in ("false", "0", "no", "off"):
+            return False
+        raise ValueError("reflection.auto must be true or false")
     return value
 
 
@@ -255,6 +280,7 @@ def get_setting(key: str) -> str:
         "reflection.api_key": s.api_key,
         "reflection.timeout": str(s.timeout),
         "reflection.max_tokens": str(s.max_tokens),
+        "reflection.auto": str(resolve_auto_reflect()),
     }
     if key in table:
         return table[key]
@@ -295,6 +321,10 @@ def settings_view() -> dict[str, Any]:
             "max_tokens": {
                 "value": s.max_tokens,
                 "source": _source(("ANAMNESIS_REFLECTION_MAX_TOKENS",), "max_tokens" in block),
+            },
+            "auto": {
+                "value": resolve_auto_reflect(),
+                "source": _source(("ANAMNESIS_REFLECT_AUTO",), "auto" in block),
             },
             "api_key_set": bool(s.api_key),
             "api_key_preview": mask_key(s.api_key),

@@ -770,7 +770,7 @@ def _render_config(view: dict[str, Any]) -> str:
         field = view[key]
         lines.append(f"{key} = {field['value']!r}  [{field['source']}]")
     refl = view["reflection"]
-    for key in ("provider", "model", "base_url", "timeout", "max_tokens"):
+    for key in ("provider", "model", "base_url", "timeout", "max_tokens", "auto"):
         field = refl[key]
         lines.append(f"reflection.{key} = {field['value']!r}  [{field['source']}]")
     preview = refl["api_key_preview"] or "(unset)"
