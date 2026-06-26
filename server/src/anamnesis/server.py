@@ -188,10 +188,11 @@ def build_server(store: MemoryStore, *, machine_id: str | None = None) -> FastMC
         workspace_id: str | None = None,
         k: int = 8,
     ) -> list[dict[str, object]]:
-        """Search memory by keyword (FTS5 BM25), optionally scoped by project/type/scope.
+        """Search memory by keyword (FTS5 BM25), optionally scoped by project/type/scope, and by
+        user_id/workspace_id (default self/personal; set by the hosted relay, not local installs).
 
-        Read-only. Returns up to ``k`` ranked notes, each with its body and
-        metadata (id, type, project, machine of origin, scope, tags, timestamps).
+        Read-only. Returns up to ``k`` ranked notes, each with its body and metadata
+        (id, type, project, machine of origin, scope, user_id, workspace_id, tags, timestamps).
         ``scope`` filters to "portable" (synced) or "machine-local" (this machine only).
         """
         return search_memories(
@@ -215,8 +216,9 @@ def build_server(store: MemoryStore, *, machine_id: str | None = None) -> FastMC
     ) -> list[dict[str, object]]:
         """List memory notes newest-first (titles + metadata, no bodies).
 
-        Read-only. Optionally scoped by project, type, and/or scope
-        ("portable" vs "machine-local").
+        Read-only. Optionally scoped by project, type, and/or scope ("portable" vs "machine-local"),
+        and by user_id/workspace_id (default self/personal; set by the hosted relay, not local
+        installs).
         """
         return list_memories(
             store,
@@ -251,9 +253,10 @@ def build_server(store: MemoryStore, *, machine_id: str | None = None) -> FastMC
         Use ``type`` = procedural (verified how-tos, decisions, fixes), semantic
         (facts, preferences, conventions), or episodic (what happened). ``scope`` =
         "portable" (default; syncs to your other machines) or "machine-local"
-        (stays on this machine only, never synced). The note is tagged with this
-        machine as its origin. Returns the created note's metadata. This modifies
-        the store, so it is not auto-approved.
+        (stays on this machine only, never synced). ``user_id``/``workspace_id`` default to
+        "self"/"personal" and are set by the hosted relay, not local installs. The note is tagged
+        with this machine as its origin. Returns the created note's metadata. This modifies the
+        store, so it is not auto-approved.
         """
         return write_memory(
             store,
