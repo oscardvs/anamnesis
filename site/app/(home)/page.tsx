@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { CopyCommand } from '@/components/copy-command';
 import { repoUrl, docsRoute } from '@/lib/shared';
 import { Hero } from '@/components/landing/hero';
+import { Demo } from '@/components/landing/demo';
 import { InstallPill } from '@/components/landing/install-pill';
 import { FeatureBento } from '@/components/landing/feature-bento';
 import { HowItWorks } from '@/components/landing/how-it-works';
@@ -15,6 +16,9 @@ export default function Home() {
     <main className="grain relative flex flex-col">
       {/* 1. Hero: the promise, the subhead, the Amsterdam scenario, the CTAs. */}
       <Hero />
+
+      {/* 1b. The recorded split-screen demo. */}
+      <Demo />
 
       {/* 2. The one-line install pill (copy button). */}
       <InstallPill />
