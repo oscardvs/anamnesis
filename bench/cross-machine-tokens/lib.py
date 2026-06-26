@@ -91,3 +91,44 @@ def seed_store(home: Path) -> int:
         return store.reindex()
     finally:
         store.close()
+
+
+TASK_PROMPT = (
+    "Add a POST /quotes endpoint to this project that validates the request body "
+    "and returns the created quote. Follow the project's existing conventions."
+)
+
+
+def build_warm_prompt(inject_block: str, task: str = TASK_PROMPT) -> str:
+    """Prepend the real anamnesis inject block to the task prompt."""
+    block = inject_block.rstrip()
+    return f"{block}\n\n{task}" if block else task
+
+
+def parse_usage(usage: dict | None) -> dict[str, int]:
+    """Extract token counts from a ResultMessage.usage dict (or None)."""
+    u = usage or {}
+    inp = int(u.get("input_tokens", 0))
+    out = int(u.get("output_tokens", 0))
+    cc = int(u.get("cache_creation_input_tokens", 0))
+    cr = int(u.get("cache_read_input_tokens", 0))
+    return {
+        "input_tokens": inp,
+        "output_tokens": out,
+        "cache_creation": cc,
+        "cache_read": cr,
+        "total_input": inp + cc + cr,
+    }
+
+
+def summarize_runs(label: str, runs: list[dict[str, int]]) -> dict:
+    """Average total_input and output_tokens across N runs of one condition."""
+    n = len(runs)
+    if n == 0:
+        return {"label": label, "runs": 0, "avg_total_input": 0, "avg_output_tokens": 0}
+    return {
+        "label": label,
+        "runs": n,
+        "avg_total_input": round(sum(r["total_input"] for r in runs) / n),
+        "avg_output_tokens": round(sum(r["output_tokens"] for r in runs) / n),
+    }

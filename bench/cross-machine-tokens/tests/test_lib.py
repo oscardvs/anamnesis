@@ -36,3 +36,39 @@ def test_write_project_creates_marker_and_sources(tmp_path):
     # The conventions are NOT all spelled out in the code (memory adds value).
     blob = (proj / "src" / "routes" / "quotes.ts").read_text()
     assert "POST" not in blob  # the POST route is the task, not pre-written
+
+
+def test_build_warm_prompt_prepends_block():
+    out = lib.build_warm_prompt("# memory\n- thing\n", task="DO IT")
+    assert out.startswith("# memory")
+    assert out.rstrip().endswith("DO IT")
+
+
+def test_parse_usage_sums_total_input():
+    u = {
+        "input_tokens": 100,
+        "output_tokens": 40,
+        "cache_creation_input_tokens": 10,
+        "cache_read_input_tokens": 5,
+    }
+    p = lib.parse_usage(u)
+    assert p == {
+        "input_tokens": 100,
+        "output_tokens": 40,
+        "cache_creation": 10,
+        "cache_read": 5,
+        "total_input": 115,
+    }
+    assert lib.parse_usage(None)["total_input"] == 0
+
+
+def test_summarize_runs_averages():
+    runs = [
+        {"total_input": 100, "output_tokens": 10},
+        {"total_input": 200, "output_tokens": 20},
+    ]
+    s = lib.summarize_runs("cold", runs)
+    assert s["label"] == "cold"
+    assert s["runs"] == 2
+    assert s["avg_total_input"] == 150
+    assert s["avg_output_tokens"] == 15
