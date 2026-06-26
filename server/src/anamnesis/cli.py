@@ -17,7 +17,13 @@ from typing import Any
 
 from anamnesis import config
 from anamnesis.capture import ParsedSession, parse_transcript, resolve_summarizer, write_episodic
-from anamnesis.config import resolve_claude_home, resolve_home, resolve_machine_id, resolve_remote
+from anamnesis.config import (
+    resolve_auto_reflect,
+    resolve_claude_home,
+    resolve_home,
+    resolve_machine_id,
+    resolve_remote,
+)
 from anamnesis.dedup import apply_dedup, plan_dedup
 from anamnesis.eval import (
     append_candidates,
@@ -222,6 +228,30 @@ def _commit_and_reindex(store: MemoryStore) -> bool:
     return committed
 
 
+def _maybe_auto_reflect(store: MemoryStore, project: str) -> int:
+    """Auto-distill the session's project at SessionEnd when it is over threshold.
+
+    Opt-in via reflection.auto, no-op without a provider, best-effort. Commits the
+    just-written episodic before the LLM call so a hook timeout cannot leave it
+    uncommitted; the caller's sync then commits + pushes the reflected notes.
+    Returns the number of notes written (0 if it did not fire).
+    """
+    if not resolve_auto_reflect():
+        return 0
+    reflector = make_reflector()
+    if reflector is None:
+        return 0
+    if len(select_unreflected(store, project)) < resolve_min_episodics():
+        return 0
+    _backend(store).commit_local()  # the episodic is durable before the LLM call
+    try:
+        result = apply_reflection(store, project, reflector, machine_id=resolve_machine_id())
+    except Exception as exc:  # noqa: BLE001 - auto-reflect must never break capture
+        print(f"capture: auto-reflect failed ({exc}); skipped", file=sys.stderr)
+        return 0
+    return result.notes_written
+
+
 def cmd_inject(args: argparse.Namespace, payload: dict[str, object]) -> int:
     """SessionStart: print top notes for the session's project to stdout."""
     store = MemoryStore(resolve_home())
@@ -258,6 +288,9 @@ def cmd_capture(args: argparse.Namespace, payload: dict[str, object]) -> int:
                 f"capture: wrote episodic note {mem.id} (project={project}, source={args.source})"
             )
         if not args.no_sync:
+            reflected = _maybe_auto_reflect(store, project)
+            if reflected:
+                print(f"capture: auto-reflected {reflected} note(s)")
             result = _run_sync(store, _backend(store))
             print(f"capture: synced (pushed={result.pushed} pulled={result.pulled})")
         else:

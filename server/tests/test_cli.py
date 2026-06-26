@@ -970,3 +970,190 @@ def test_cmd_import_no_sync_leaves_clean_tree(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "committed locally (no sync)" in out
     assert _porcelain(tmp_path / "store" / "memory") == ""
+
+
+def _fake_reflector():
+    from anamnesis.reflect import Reflector
+
+    return Reflector(
+        client=lambda system, user: '[{"type":"semantic","title":"T","body":"B"}]',
+        model_label="deepseek/test",
+    )
+
+
+def test_maybe_auto_reflect_fires_when_enabled_over_threshold(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.setenv("ANAMNESIS_REFLECT_AUTO", "true")
+    monkeypatch.setenv("ANAMNESIS_REFLECT_MIN_EPISODICS", "1")
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    store = MemoryStore(root=tmp_path / "store")
+    _seed_episodics(store, "p", 2)
+    monkeypatch.setattr("anamnesis.cli.make_reflector", _fake_reflector)
+
+    from anamnesis.cli import _maybe_auto_reflect
+
+    assert _maybe_auto_reflect(store, "p") == 1
+    notes = store.list(project="p", type="semantic")
+    store.close()
+    assert len(notes) == 1 and notes[0].prov_source == "reflection"
+
+
+def test_maybe_auto_reflect_noop_when_disabled(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.delenv("ANAMNESIS_REFLECT_AUTO", raising=False)
+    monkeypatch.setenv("ANAMNESIS_REFLECT_MIN_EPISODICS", "1")
+    store = MemoryStore(root=tmp_path / "store")
+    _seed_episodics(store, "p", 2)
+    from anamnesis.cli import _maybe_auto_reflect
+
+    assert _maybe_auto_reflect(store, "p") == 0
+    assert store.list(project="p", type="semantic") == []
+    store.close()
+
+
+def test_maybe_auto_reflect_noop_under_threshold(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.setenv("ANAMNESIS_REFLECT_AUTO", "true")
+    monkeypatch.setenv("ANAMNESIS_REFLECT_MIN_EPISODICS", "5")
+    store = MemoryStore(root=tmp_path / "store")
+    _seed_episodics(store, "p", 2)
+    monkeypatch.setattr("anamnesis.cli.make_reflector", _fake_reflector)
+    from anamnesis.cli import _maybe_auto_reflect
+
+    assert _maybe_auto_reflect(store, "p") == 0
+    assert store.list(project="p", type="semantic") == []
+    store.close()
+
+
+def test_maybe_auto_reflect_noop_without_provider(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.setenv("ANAMNESIS_REFLECT_AUTO", "true")
+    monkeypatch.setenv("ANAMNESIS_REFLECT_MIN_EPISODICS", "1")
+    monkeypatch.delenv("ANAMNESIS_REFLECTION_PROVIDER", raising=False)
+    for var in ("ANAMNESIS_REFLECTION_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    store = MemoryStore(root=tmp_path / "store")
+    _seed_episodics(store, "p", 2)
+    from anamnesis.cli import _maybe_auto_reflect
+
+    assert _maybe_auto_reflect(store, "p") == 0  # make_reflector() is None
+    store.close()
+
+
+def test_maybe_auto_reflect_swallows_reflector_error(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.setenv("ANAMNESIS_REFLECT_AUTO", "true")
+    monkeypatch.setenv("ANAMNESIS_REFLECT_MIN_EPISODICS", "1")
+    store = MemoryStore(root=tmp_path / "store")
+    _seed_episodics(store, "p", 2)
+
+    from anamnesis.reflect import Reflector
+
+    def boom_client(system, user):
+        raise RuntimeError("api down")
+
+    monkeypatch.setattr(
+        "anamnesis.cli.make_reflector",
+        lambda: Reflector(client=boom_client, model_label="x"),
+    )
+    from anamnesis.cli import _maybe_auto_reflect
+
+    assert _maybe_auto_reflect(store, "p") == 0
+    assert "auto-reflect failed" in capsys.readouterr().err
+    store.close()
+
+
+def _auto_transcript(tmp_path):
+    transcript = tmp_path / "t.jsonl"
+    ev = {"type": "user", "cwd": str(tmp_path), "message": {"content": "did more work today"}}
+    transcript.write_text(json.dumps(ev) + "\n", encoding="utf-8")
+    return transcript
+
+
+def test_cmd_capture_auto_reflects_when_enabled(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.setenv("ANAMNESIS_REFLECT_AUTO", "true")
+    monkeypatch.setenv("ANAMNESIS_REFLECT_MIN_EPISODICS", "1")
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    store = MemoryStore(root=tmp_path / "store")
+    _seed_episodics(store, "p", 2)
+    store.close()
+    monkeypatch.setattr("anamnesis.cli.make_reflector", _fake_reflector)
+
+    args = build_parser().parse_args(
+        [
+            "capture",
+            "--transcript",
+            str(_auto_transcript(tmp_path)),
+            "--project",
+            "p",
+            "--source",
+            "session-end",
+        ]
+    )
+    assert cmd_capture(args, {}) == 0
+    out = capsys.readouterr().out
+    assert "wrote episodic note" in out
+    assert "auto-reflected" in out
+    assert _porcelain(tmp_path / "store" / "memory") == ""
+    store = MemoryStore(root=tmp_path / "store")
+    assert store.list(project="p", type="semantic")
+    store.close()
+
+
+def test_cmd_capture_no_auto_reflect_by_default(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.delenv("ANAMNESIS_REFLECT_AUTO", raising=False)
+    monkeypatch.setenv("ANAMNESIS_REFLECT_MIN_EPISODICS", "1")
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    store = MemoryStore(root=tmp_path / "store")
+    _seed_episodics(store, "p", 2)
+    store.close()
+
+    args = build_parser().parse_args(
+        [
+            "capture",
+            "--transcript",
+            str(_auto_transcript(tmp_path)),
+            "--project",
+            "p",
+            "--source",
+            "session-end",
+        ]
+    )
+    assert cmd_capture(args, {}) == 0
+    out = capsys.readouterr().out
+    assert "wrote episodic note" in out
+    assert "auto-reflected" not in out
+    store = MemoryStore(root=tmp_path / "store")
+    assert store.list(project="p", type="semantic") == []
+    store.close()
+
+
+def test_cmd_capture_no_sync_does_not_auto_reflect(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.setenv("ANAMNESIS_REFLECT_AUTO", "true")
+    monkeypatch.setenv("ANAMNESIS_REFLECT_MIN_EPISODICS", "1")
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    store = MemoryStore(root=tmp_path / "store")
+    _seed_episodics(store, "p", 2)
+    store.close()
+    monkeypatch.setattr("anamnesis.cli.make_reflector", _fake_reflector)
+
+    args = build_parser().parse_args(
+        [
+            "capture",
+            "--transcript",
+            str(_auto_transcript(tmp_path)),
+            "--project",
+            "p",
+            "--source",
+            "precompact",
+            "--no-sync",
+        ]
+    )
+    assert cmd_capture(args, {}) == 0
+    assert "auto-reflected" not in capsys.readouterr().out
+    store = MemoryStore(root=tmp_path / "store")
+    assert store.list(project="p", type="semantic") == []
+    store.close()
