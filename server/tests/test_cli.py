@@ -837,6 +837,26 @@ def test_cmd_migrate_apply_no_sync_leaves_clean_tree(tmp_path, monkeypatch, caps
     assert _porcelain(tmp_path / "store" / "memory") == ""
 
 
+def test_cmd_migrate_apply_no_sync_empty_map_reports_nothing_to_commit(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    store = MemoryStore(root=tmp_path / "store")
+    store.write(type="semantic", title="t", body="b", project="keep-me", machine_id="m")
+    store.close()
+    assert main(["sync"]) == 0  # commit the note locally so the working tree is clean
+    capsys.readouterr()  # discard the sync output
+    map_file = tmp_path / "map.json"
+    # A map that matches no note: apply writes nothing, so there is nothing to commit.
+    map_file.write_text(json.dumps({"projects": {"absent-key": "other"}}), encoding="utf-8")
+
+    assert main(["migrate", "--map", str(map_file), "--apply", "--no-sync"]) == 0
+    out = capsys.readouterr().out
+    assert "nothing to commit; reindexed (no sync)" in out
+    assert _porcelain(tmp_path / "store" / "memory") == ""
+
+
 def test_cmd_dedup_apply_no_sync_leaves_clean_tree(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
     monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
