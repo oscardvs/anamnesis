@@ -8,7 +8,7 @@ This page takes you from nothing to a working setup: Anamnesis installed, connec
 Anamnesis is a memory layer for Claude Code. It saves what Claude learns about your projects as plain markdown files on your own machine and feeds the relevant pieces back to Claude when you start a new session. You install it once per machine. After that it works in the background.
 
 <Callout type="info">
-Anamnesis is pre-alpha and open source (Apache-2.0). The from-source steps below work today. A shorter one-line install is coming once the package is published to PyPI, and is clearly labeled as not-yet-available further down.
+Anamnesis is pre-alpha and open source (Apache-2.0). The one-line install below works today; the from-source steps are for contributors and air-gapped machines.
 </Callout>
 
 ## What you need first
@@ -134,20 +134,18 @@ If you ever do configure things by hand, set these in the server's `"env"` block
 
 The `.env.example` file in the repo documents these too, but remember: that `.env` file is for running tooling by hand. It is not read by the server Claude Code launches.
 
-## The one-line install (not available yet)
+## The one-line install
 
-Once Anamnesis is published to the Python package index (PyPI), installing it will be a single command followed by `init`:
+Anamnesis is published to PyPI as `anamnesis-memory`. Install it and wire up this machine in one line:
 
 ```bash
-# Not available yet. Coming once the package is published to PyPI.
 uv tool install anamnesis-memory && anamnesis init
 ```
 
-A few honest details so this is not a surprise later:
+A couple of details worth knowing:
 
-- This is **not published yet.** Use the from-source steps above for now. The repository README labels this one-liner as something you "will be able to" do once published.
-- When it lands, the package on PyPI will be named **`anamnesis-memory`** (the plain name `anamnesis` was already taken by an unrelated project). The command it installs is still just **`anamnesis`**.
-- `uv tool install` puts the `anamnesis` command on your PATH globally, so you would no longer need the `uv run` prefix or the cloned `server` folder.
+- The package on PyPI is named **`anamnesis-memory`** (the plain name `anamnesis` was already taken by an unrelated project). The command it installs is still just **`anamnesis`**.
+- `uv tool install` puts the `anamnesis` command on your PATH globally, so you no longer need the `uv run` prefix or the cloned `server` folder.
 
 ## How the pieces fit together
 

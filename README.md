@@ -76,9 +76,12 @@ uv run anamnesis init            # interactive: confirm store dir, machine id, r
 uv run anamnesis init --print    # dry-run: show exactly what it would do
 ```
 
-Once the package is published you will be able to do the whole thing in one line:
-`uv tool install anamnesis-memory && anamnesis init` (the PyPI package is `anamnesis-memory`; the
-command it installs is still `anamnesis`).
+The fastest path is one line (the PyPI package is `anamnesis-memory`; the command it installs is
+`anamnesis`):
+
+```bash
+uv tool install anamnesis-memory && anamnesis init
+```
 
 The repo ships a project-scoped `.mcp.json` that registers the server with Claude Code, exposing five
 tools: `memory_search` / `memory_list` / `memory_status` (read-only, auto-approvable), `memory_write`,
