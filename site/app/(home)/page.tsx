@@ -6,6 +6,7 @@ import { Demo } from '@/components/landing/demo';
 import { InstallPill } from '@/components/landing/install-pill';
 import { FeatureBento } from '@/components/landing/feature-bento';
 import { HowItWorks } from '@/components/landing/how-it-works';
+import { TokenProof } from '@/components/landing/token-proof';
 import { Comparison } from '@/components/landing/comparison';
 import { SiteFooter } from '@/components/landing/site-footer';
 import { Reveal } from '@/components/landing/reveal';
@@ -28,6 +29,9 @@ export default function Home() {
 
       {/* 4. Three-step how it works. */}
       <HowItWorks />
+
+      {/* 4b. The measured token before/after. */}
+      <TokenProof />
 
       {/* 5. Honest comparison block. */}
       <Comparison />
