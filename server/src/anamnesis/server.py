@@ -9,10 +9,11 @@ the store. The store root is resolved from ``ANAMNESIS_HOME`` (default
 Tools (read-only query tools carry ``readOnlyHint`` so a client can auto-approve
 them; writes are flagged for confirmation):
 
-- ``memory_search(query, project?, type?, scope?, k=8)``  read-only
-- ``memory_list(project?, type?, scope?)``                read-only
+- ``memory_search(query, project?, type?, scope?, user_id?, workspace_id?, k=8)``  read-only
+- ``memory_list(project?, type?, scope?, user_id?, workspace_id?)``                read-only
 - ``memory_status()``                                     read-only
-- ``memory_write(type, title, body, project, tags?, scope?)``  write - confirm
+- ``memory_write(type, title, body, project, tags?, scope?, user_id?, workspace_id?)``
+  write - confirm
 - ``memory_sync(force?)``                         write - git pull --rebase && push
 
 The store layer never imports FastMCP; the dependency points one way (server ->
@@ -38,6 +39,8 @@ def _memory_dict(mem: Memory, *, include_body: bool) -> dict[str, object]:
         "project": mem.project,
         "machine_id": mem.machine_id,
         "scope": mem.scope,
+        "user_id": mem.user_id,
+        "workspace_id": mem.workspace_id,
         "tags": mem.tags,
         "created_at": mem.created_at,
         "updated_at": mem.updated_at,
@@ -57,10 +60,20 @@ def search_memories(
     project: str | None = None,
     type: MemoryType | None = None,
     scope: str | None = None,
+    user_id: str | None = None,
+    workspace_id: str | None = None,
     k: int = 8,
 ) -> list[dict[str, object]]:
     """Keyword search (FTS5 BM25); returns ranked notes with body + metadata."""
-    hits = store.search(query, project=project, type=type, scope=scope, k=k)
+    hits = store.search(
+        query,
+        project=project,
+        type=type,
+        scope=scope,
+        user_id=user_id,
+        workspace_id=workspace_id,
+        k=k,
+    )
     return [_memory_dict(m, include_body=True) for m in hits]
 
 
@@ -70,11 +83,19 @@ def list_memories(
     project: str | None = None,
     type: MemoryType | None = None,
     scope: str | None = None,
+    user_id: str | None = None,
+    workspace_id: str | None = None,
 ) -> list[dict[str, object]]:
     """List notes newest-first; returns titles + metadata (no bodies)."""
     return [
         _memory_dict(m, include_body=False)
-        for m in store.list(project=project, type=type, scope=scope)
+        for m in store.list(
+            project=project,
+            type=type,
+            scope=scope,
+            user_id=user_id,
+            workspace_id=workspace_id,
+        )
     ]
 
 
@@ -88,6 +109,8 @@ def write_memory(
     tags: list[str] | None = None,
     machine_id: str = "unknown",
     scope: str = "portable",
+    user_id: str = "self",
+    workspace_id: str = "personal",
 ) -> dict[str, object]:
     """Create a durable note (writes markdown + indexes it); returns its metadata."""
     mem = store.write(
@@ -98,6 +121,8 @@ def write_memory(
         machine_id=machine_id,
         tags=tags or [],
         scope=scope,
+        user_id=user_id,
+        workspace_id=workspace_id,
     )
     return _memory_dict(mem, include_body=True)
 
@@ -113,6 +138,7 @@ def status_report(store: MemoryStore, backend: SyncBackend) -> dict[str, object]
         "by_type": s.by_type,
         "by_project": s.by_project,
         "by_scope": s.by_scope,
+        "by_workspace": s.by_workspace,
         "sync": {
             "initialized": st.initialized,
             "remote": st.remote,
@@ -158,6 +184,8 @@ def build_server(store: MemoryStore, *, machine_id: str | None = None) -> FastMC
         project: str | None = None,
         type: str | None = None,
         scope: str | None = None,
+        user_id: str | None = None,
+        workspace_id: str | None = None,
         k: int = 8,
     ) -> list[dict[str, object]]:
         """Search memory by keyword (FTS5 BM25), optionally scoped by project/type/scope.
@@ -166,20 +194,38 @@ def build_server(store: MemoryStore, *, machine_id: str | None = None) -> FastMC
         metadata (id, type, project, machine of origin, scope, tags, timestamps).
         ``scope`` filters to "portable" (synced) or "machine-local" (this machine only).
         """
-        return search_memories(store, query=query, project=project, type=type, scope=scope, k=k)
+        return search_memories(
+            store,
+            query=query,
+            project=project,
+            type=type,
+            scope=scope,
+            user_id=user_id,
+            workspace_id=workspace_id,
+            k=k,
+        )
 
     @mcp.tool(annotations=_READ_ONLY)
     def memory_list(
         project: str | None = None,
         type: str | None = None,
         scope: str | None = None,
+        user_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> list[dict[str, object]]:
         """List memory notes newest-first (titles + metadata, no bodies).
 
         Read-only. Optionally scoped by project, type, and/or scope
         ("portable" vs "machine-local").
         """
-        return list_memories(store, project=project, type=type, scope=scope)
+        return list_memories(
+            store,
+            project=project,
+            type=type,
+            scope=scope,
+            user_id=user_id,
+            workspace_id=workspace_id,
+        )
 
     @mcp.tool(annotations=_READ_ONLY)
     def memory_status() -> dict[str, object]:
@@ -197,6 +243,8 @@ def build_server(store: MemoryStore, *, machine_id: str | None = None) -> FastMC
         project: str = "global",
         tags: list[str] | None = None,
         scope: str = "portable",
+        user_id: str = "self",
+        workspace_id: str = "personal",
     ) -> dict[str, object]:
         """Create a durable memory note: write the markdown file and index it.
 
@@ -216,6 +264,8 @@ def build_server(store: MemoryStore, *, machine_id: str | None = None) -> FastMC
             tags=tags,
             machine_id=mid,
             scope=scope,
+            user_id=user_id,
+            workspace_id=workspace_id,
         )
 
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, openWorldHint=True))

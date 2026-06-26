@@ -860,7 +860,10 @@ def cmd_status() -> int:
         stats = store.stats()
         state = _backend(store).state()
         print(f"store: {store.root}")
-        print(f"notes: {stats.total}  by_type={stats.by_type}  by_scope={stats.by_scope}")
+        print(
+            f"notes: {stats.total}  by_type={stats.by_type}  "
+            f"by_scope={stats.by_scope}  by_workspace={stats.by_workspace}"
+        )
         print(
             f"sync: initialized={state.initialized} remote={state.remote} "
             f"head={state.head} dirty={state.dirty} ({state.detail})"

@@ -264,3 +264,27 @@ def test_status_report_includes_by_scope(tmp_path):
     backend = GitSyncBackend(store.memory_dir, remote=None, machine_id="m")
     report = status_report(store, backend)
     assert report["by_scope"] == {"portable": 1, "machine-local": 1}
+
+
+def test_memory_dict_includes_tenant(tmp_path):
+    store = MemoryStore(tmp_path)
+    mem = store.write(type="semantic", title="t", body="b", user_id="alice", workspace_id="team-a")
+    out = search_memories(store, query="t")
+    assert out[0]["user_id"] == "alice"
+    assert out[0]["workspace_id"] == "team-a"
+    assert mem.user_id == "alice"  # sanity
+
+
+def test_write_memory_defaults_self_personal(tmp_path):
+    store = MemoryStore(tmp_path)
+    out = write_memory(store, type="semantic", title="t", body="b")
+    assert out["user_id"] == "self"
+    assert out["workspace_id"] == "personal"
+
+
+def test_list_memories_filters_by_workspace(tmp_path):
+    store = MemoryStore(tmp_path)
+    store.write(type="semantic", title="a", body="b", workspace_id="team-a")
+    store.write(type="semantic", title="c", body="d", workspace_id="team-b")
+    out = list_memories(store, workspace_id="team-a")
+    assert [m["workspace_id"] for m in out] == ["team-a"]
