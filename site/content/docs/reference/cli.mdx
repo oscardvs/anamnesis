@@ -12,7 +12,16 @@ explicit verb.
 
 ## Invocation
 
-There is no published PyPI package yet. Until one ships, run the CLI from the editable checkout:
+The fastest path is the one-line install, which is live on PyPI:
+
+```bash
+uv tool install anamnesis-memory && anamnesis init
+```
+
+The PyPI distribution name is `anamnesis-memory`; the installed command stays `anamnesis`. After this you can
+run `anamnesis <subcommand> [flags]` directly.
+
+For contributors and local development, run the CLI from the editable checkout instead:
 
 ```bash
 cd server
@@ -21,10 +30,6 @@ uv pip install -e ".[mcp,dev]"
 
 uv run anamnesis <subcommand> [flags]
 ```
-
-The README notes that once the package is published you will be able to do
-`uv tool install anamnesis-memory && anamnesis init` (the planned PyPI distribution name is
-`anamnesis-memory`; the installed command stays `anamnesis`). That one-liner is not available yet.
 
 <Callout type="info">
 The store lives at `~/.anamnesis` by default (`ANAMNESIS_HOME` overrides it). Inside it: `memory/`

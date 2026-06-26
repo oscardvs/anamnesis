@@ -116,10 +116,10 @@ remote, and runs a first sync. (For what `init` does in detail and the install s
 before it, see [Install and connect to Claude Code](./install).)
 
 <Callout type="info">
-The `uv run` prefix is how you run the command from the project checkout today. A shorter one-line
-install (`uv tool install anamnesis-memory && anamnesis init`) is planned for once the package is
-published to PyPI, but it is not available yet, so this page uses `uv run anamnesis init`
-throughout.
+The `uv run` prefix is how you run the command from a project checkout. The one-line install
+(`uv tool install anamnesis-memory && anamnesis init`) is live on PyPI and installs an `anamnesis`
+command that works the same way; once it is installed you can drop the `uv run` prefix and just run
+`anamnesis init`. This page uses `uv run anamnesis init` throughout so the steps work from a checkout too.
 </Callout>
 
 The host machine, if you also use it day to day, can point at its own copy with a plain local path

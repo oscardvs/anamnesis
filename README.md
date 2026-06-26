@@ -173,7 +173,8 @@ one-command installer (`anamnesis init`) wires up the MCP server, hooks, store, 
 
 **Phase 1 adds the git-like dashboard** (Next.js): browse plus full-text search, a history view
 driven by the real git log, a per-machine fleet view with sync status, and inline edit that writes
-back to markdown and reindexes. **Next:** publishing to PyPI for a one-line install.
+back to markdown and reindexes. The one-line install (`uv tool install anamnesis-memory && anamnesis init`)
+is now live on PyPI.
 
 > Pre-alpha: APIs and setup may still change. Watch/star to follow along.
 

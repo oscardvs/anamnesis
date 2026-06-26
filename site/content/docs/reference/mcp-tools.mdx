@@ -371,7 +371,7 @@ The project ships a `.mcp.json` at the repo root that registers the server with 
 Claude Code launches MCP servers with a filtered environment, so your shell exports are not inherited. Set `ANAMNESIS_HOME`, `ANAMNESIS_MACHINE_ID`, and `ANAMNESIS_GIT_REMOTE` in the `.mcp.json` `"env"` block, or rely on the per-store `config.json` fallback that `anamnesis init` writes. See the [configuration reference](./configuration).
 </Callout>
 
-To install and register everything in one command, run `anamnesis init` (see the [CLI reference](./cli)). A single-line install via the published PyPI package (`uv tool install anamnesis-memory && anamnesis init`) is described in the README as available once the package is published; until then, install from source with `uv pip install -e ".[mcp,dev]"` in `server/`.
+To install and register everything in one command, run `uv tool install anamnesis-memory && anamnesis init` (see the [CLI reference](./cli)). This one-line install from the PyPI package is live and is the fastest path. Installing from source with `uv pip install -e ".[mcp,dev]"` in `server/` is the path for contributors and local development.
 
 ## See also
 
