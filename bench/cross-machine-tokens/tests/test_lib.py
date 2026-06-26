@@ -72,3 +72,19 @@ def test_summarize_runs_averages():
     assert s["runs"] == 2
     assert s["avg_total_input"] == 150
     assert s["avg_output_tokens"] == 15
+
+
+def test_render_chart_svg_contains_values_and_labels():
+    svg = lib.render_chart_svg(cold=12000, warm=3000)
+    assert svg.startswith("<svg")
+    assert "</svg>" in svg
+    assert "Without Anamnesis" in svg
+    assert "With Anamnesis" in svg
+    assert "12,000" in svg
+    assert "3,000" in svg
+    assert "SAMPLE" not in svg
+
+
+def test_render_chart_svg_sample_watermark():
+    svg = lib.render_chart_svg(cold=1, warm=1, sample=True)
+    assert "SAMPLE" in svg

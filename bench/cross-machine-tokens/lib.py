@@ -132,3 +132,51 @@ def summarize_runs(label: str, runs: list[dict[str, int]]) -> dict:
         "avg_total_input": round(sum(r["total_input"] for r in runs) / n),
         "avg_output_tokens": round(sum(r["output_tokens"] for r in runs) / n),
     }
+
+
+def render_chart_svg(cold: int, warm: int, *, sample: bool = False) -> str:
+    """Render a deterministic two-bar token chart in Recollection colors.
+
+    Bars are scaled to the larger value. Colors are baked (not currentColor) so
+    the committed asset is stable regardless of where it is embedded.
+    """
+    peak = max(cold, warm, 1)
+    width, height = 720, 360
+    base_y, top_y = 300, 60
+    span = base_y - top_y
+    cold_h = round(span * cold / peak)
+    warm_h = round(span * warm / peak)
+    cold_x, warm_x, bar_w = 140, 440, 140
+    accent = "#6a40d8"  # --accent (violet), light theme
+    accent2 = "#4575d6"  # --accent-2 (blue)
+    text = "#2b2733"
+    muted = "#6b6776"
+
+    def bar(x: int, h: int, value: int, label: str, fill: str) -> str:
+        y = base_y - h
+        return (
+            f'<rect x="{x}" y="{y}" width="{bar_w}" height="{h}" rx="8" fill="{fill}"/>'
+            f'<text x="{x + bar_w // 2}" y="{y - 12}" text-anchor="middle" '
+            f'font-size="22" font-weight="600" fill="{text}">{value:,}</text>'
+            f'<text x="{x + bar_w // 2}" y="{base_y + 28}" text-anchor="middle" '
+            f'font-size="15" fill="{muted}">{label}</text>'
+        )
+
+    watermark = (
+        f'<text x="{width // 2}" y="{height // 2}" text-anchor="middle" '
+        f'font-size="64" fill="{muted}" opacity="0.12" '
+        f'transform="rotate(-18 {width // 2} {height // 2})">SAMPLE</text>'
+        if sample
+        else ""
+    )
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" '
+        f'font-family="ui-sans-serif, system-ui, sans-serif" role="img" '
+        f'aria-label="Tokens to complete the task without vs with Anamnesis">'
+        f'<rect width="{width}" height="{height}" fill="none"/>'
+        f'<text x="{width // 2}" y="32" text-anchor="middle" font-size="16" '
+        f'fill="{text}" font-weight="600">Tokens to complete the task on a fresh machine</text>'
+        f'{bar(cold_x, cold_h, cold, "Without Anamnesis", accent2)}'
+        f'{bar(warm_x, warm_h, warm, "With Anamnesis", accent)}'
+        f"{watermark}</svg>\n"
+    )
