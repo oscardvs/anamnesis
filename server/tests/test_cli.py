@@ -896,3 +896,41 @@ def test_cmd_merge_apply_no_sync_leaves_clean_tree(tmp_path, monkeypatch, capsys
     assert main(["merge", "--apply", "--no-gate", "--no-sync"]) == 0
     assert "committed locally; reindexed (no sync)" in capsys.readouterr().out
     assert _porcelain(tmp_path / "store" / "memory") == ""
+
+
+def test_cmd_capture_no_sync_leaves_clean_tree(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    transcript = tmp_path / "t.jsonl"
+    ev = {"type": "user", "cwd": str(tmp_path), "message": {"content": "Build the hooks"}}
+    transcript.write_text(json.dumps(ev) + "\n", encoding="utf-8")
+
+    args = build_parser().parse_args(
+        [
+            "capture",
+            "--transcript",
+            str(transcript),
+            "--project",
+            "p",
+            "--source",
+            "session-end",
+            "--no-sync",
+        ]
+    )
+    assert cmd_capture(args, {}) == 0
+    out = capsys.readouterr().out
+    assert "wrote episodic note" in out
+    assert "committed locally (no sync)" in out
+    assert _porcelain(tmp_path / "store" / "memory") == ""
+
+
+def test_cmd_import_no_sync_leaves_clean_tree(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    claude = tmp_path / "claude"
+    _make_native(claude)
+
+    assert main(["import", "--claude-home", str(claude), "--no-sync"]) == 0
+    out = capsys.readouterr().out
+    assert "committed locally (no sync)" in out
+    assert _porcelain(tmp_path / "store" / "memory") == ""

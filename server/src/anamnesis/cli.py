@@ -260,6 +260,10 @@ def cmd_capture(args: argparse.Namespace, payload: dict[str, object]) -> int:
         if not args.no_sync:
             result = _run_sync(store, _backend(store))
             print(f"capture: synced (pushed={result.pushed} pulled={result.pulled})")
+        else:
+            committed = _backend(store).commit_local()
+            state = "committed locally" if committed else "nothing to commit"
+            print(f"capture: {state} (no sync)")
     finally:
         store.close()
     return 0
@@ -685,6 +689,10 @@ def cmd_import(args: argparse.Namespace) -> int:
         if not args.no_sync:
             sync = _run_sync(store, _backend(store))
             print(f"import: synced (pushed={sync.pushed} pulled={sync.pulled})")
+        else:
+            committed = _backend(store).commit_local()
+            state = "committed locally" if committed else "nothing to commit"
+            print(f"import: {state} (no sync)")
     finally:
         store.close()
     return 0
