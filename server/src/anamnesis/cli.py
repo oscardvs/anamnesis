@@ -211,6 +211,17 @@ def _run_sync(store: MemoryStore, backend: GitSyncBackend) -> SyncResult:
     return result
 
 
+def _commit_and_reindex(store: MemoryStore) -> bool:
+    """The --no-sync counterpart to _run_sync: commit pending markdown, then reindex.
+
+    Order is write (by the caller) -> commit -> reindex, so a concurrent sync can
+    never wipe the uncommitted markdown. Returns True iff a commit was made.
+    """
+    committed = _backend(store).commit_local()
+    store.reindex()
+    return committed
+
+
 def cmd_inject(args: argparse.Namespace, payload: dict[str, object]) -> int:
     """SessionStart: print top notes for the session's project to stdout."""
     store = MemoryStore(resolve_home())
@@ -280,8 +291,9 @@ def cmd_migrate(args: argparse.Namespace) -> int:
             return 0
         changes = apply_migration(store.memory_dir, project_map, note_overrides)
         if args.no_sync:
-            store.reindex()
-            print(f"migrate: applied {len(changes)} change(s); reindexed (no sync)")
+            committed = _commit_and_reindex(store)
+            state = "committed locally" if committed else "nothing to commit"
+            print(f"migrate: applied {len(changes)} change(s); {state}; reindexed (no sync)")
         else:
             result = _run_sync(store, _backend(store))
             print(
@@ -305,8 +317,9 @@ def cmd_dedup(args: argparse.Namespace) -> int:
             return 0
         changes = apply_dedup(store.memory_dir)
         if args.no_sync:
-            store.reindex()
-            print(f"dedup: removed {len(changes)} duplicate(s); reindexed (no sync)")
+            committed = _commit_and_reindex(store)
+            state = "committed locally" if committed else "nothing to commit"
+            print(f"dedup: removed {len(changes)} duplicate(s); {state}; reindexed (no sync)")
         else:
             result = _run_sync(store, _backend(store))
             print(
@@ -334,8 +347,9 @@ def cmd_backfill_provenance(args: argparse.Namespace) -> int:
             return 0
         changes = apply_backfill(dirs)
         if args.no_sync:
-            store.reindex()
-            print(f"backfill: rewrote {len(changes)} note(s); reindexed (no sync)")
+            committed = _commit_and_reindex(store)
+            state = "committed locally" if committed else "nothing to commit"
+            print(f"backfill: rewrote {len(changes)} note(s); {state}; reindexed (no sync)")
         else:
             result = _run_sync(store, _backend(store))
             print(
@@ -391,8 +405,9 @@ def cmd_reflect(args: argparse.Namespace) -> int:
             )
         if args.apply and wrote:
             if args.no_sync:
-                store.reindex()
-                print(f"reflect: wrote {wrote} note(s); reindexed (no sync)")
+                committed = _commit_and_reindex(store)
+                state = "committed locally" if committed else "nothing to commit"
+                print(f"reflect: wrote {wrote} note(s); {state}; reindexed (no sync)")
             else:
                 synced = _run_sync(store, _backend(store))
                 print(
@@ -518,8 +533,9 @@ def cmd_merge(args: argparse.Namespace) -> int:
                 )
         if args.apply and superseded:
             if args.no_sync:
-                store.reindex()
-                print(f"merge: superseded {superseded} note(s); reindexed (no sync)")
+                committed = _commit_and_reindex(store)
+                state = "committed locally" if committed else "nothing to commit"
+                print(f"merge: superseded {superseded} note(s); {state}; reindexed (no sync)")
             else:
                 synced = _run_sync(store, _backend(store))
                 print(

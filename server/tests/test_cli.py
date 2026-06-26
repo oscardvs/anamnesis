@@ -1,6 +1,7 @@
 import io
 import json
 import re as _re
+import subprocess
 
 import pytest
 
@@ -18,6 +19,15 @@ from anamnesis.cli import (
     resolve_command,
 )
 from anamnesis.store import MemoryStore
+
+
+def _porcelain(memory_dir) -> str:
+    return subprocess.run(
+        ["git", "-C", str(memory_dir), "status", "--porcelain"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
 
 
 def test_resolve_command_defaults_to_serve():
@@ -811,3 +821,78 @@ def test_config_test_heuristic_ok(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path))
     assert main(["config", "test"]) == 0
     assert "heuristic" in capsys.readouterr().out
+
+
+def test_cmd_migrate_apply_no_sync_leaves_clean_tree(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    store = MemoryStore(root=tmp_path / "store")
+    store.write(type="semantic", title="t", body="b", project="old-key", machine_id="m")
+    store.close()
+    map_file = tmp_path / "map.json"
+    map_file.write_text(json.dumps({"projects": {"old-key": "new-key"}}), encoding="utf-8")
+
+    assert main(["migrate", "--map", str(map_file), "--apply", "--no-sync"]) == 0
+    assert "committed locally; reindexed (no sync)" in capsys.readouterr().out
+    assert _porcelain(tmp_path / "store" / "memory") == ""
+
+
+def test_cmd_dedup_apply_no_sync_leaves_clean_tree(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    store = MemoryStore(root=tmp_path / "store")
+    store.write(type="episodic", title="s", body="dup", project="x", machine_id="m")
+    store.write(type="episodic", title="s", body="dup", project="y", machine_id="m")
+    store.close()
+
+    assert main(["dedup", "--apply", "--no-sync"]) == 0
+    assert "committed locally; reindexed (no sync)" in capsys.readouterr().out
+    assert _porcelain(tmp_path / "store" / "memory") == ""
+
+
+def test_cmd_backfill_apply_no_sync_leaves_clean_tree(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    store = MemoryStore(root=tmp_path / "store")
+    store.write(type="episodic", title="t", body="b", tags=["session", "session-end"])
+    store.close()
+
+    assert main(["backfill-provenance", "--apply", "--no-sync"]) == 0
+    assert "committed locally; reindexed (no sync)" in capsys.readouterr().out
+    assert _porcelain(tmp_path / "store" / "memory") == ""
+
+
+def test_cmd_reflect_apply_no_sync_leaves_clean_tree(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.setenv("ANAMNESIS_REFLECT_MIN_EPISODICS", "1")
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    store = MemoryStore(root=tmp_path / "store")
+    _seed_episodics(store, "p", 2)
+    store.close()
+
+    from anamnesis.reflect import Reflector
+
+    def fake():
+        return Reflector(
+            client=lambda system, user: '[{"type":"semantic","title":"T","body":"B"}]',
+            model_label="deepseek/test",
+        )
+
+    monkeypatch.setattr("anamnesis.cli.make_reflector", fake)
+    assert main(["reflect", "--apply", "--no-sync"]) == 0
+    assert "committed locally; reindexed (no sync)" in capsys.readouterr().out
+    assert _porcelain(tmp_path / "store" / "memory") == ""
+
+
+def test_cmd_merge_apply_no_sync_leaves_clean_tree(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANAMNESIS_HOME", str(tmp_path / "store"))
+    monkeypatch.setenv("ANAMNESIS_MERGE_MIN_DURABLE", "2")
+    monkeypatch.delenv("ANAMNESIS_GIT_REMOTE", raising=False)
+    store = MemoryStore(root=tmp_path / "store")
+    _seed_durable(store, "p", 3)
+    store.close()
+
+    monkeypatch.setattr("anamnesis.cli.make_merger", _fake_merger)
+    assert main(["merge", "--apply", "--no-gate", "--no-sync"]) == 0
+    assert "committed locally; reindexed (no sync)" in capsys.readouterr().out
+    assert _porcelain(tmp_path / "store" / "memory") == ""
